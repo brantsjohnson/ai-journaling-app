@@ -9,9 +9,26 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Load user from Supabase session on mount
+  // Load user from localStorage and Supabase session on mount
   useEffect(() => {
-    // Check for existing session
+    // First, check localStorage for stored session (for email/password login)
+    const storedToken = localStorage.getItem('token');
+    const storedUser = localStorage.getItem('user');
+    
+    if (storedToken && storedUser) {
+      try {
+        const userData = JSON.parse(storedUser);
+        setUser(userData);
+        setToken(storedToken);
+        setLoading(false);
+      } catch (err) {
+        console.error('Error parsing stored user:', err);
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+      }
+    }
+
+    // Also check for Supabase session (for Google OAuth)
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         setUser({
@@ -20,8 +37,17 @@ export const AuthProvider = ({ children }) => {
           name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.email,
         });
         setToken(session.access_token);
+        // Sync to localStorage
+        localStorage.setItem('token', session.access_token);
+        localStorage.setItem('user', JSON.stringify({
+          id: session.user.id,
+          email: session.user.email,
+          name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.email,
+        }));
       }
-      setLoading(false);
+      if (!storedToken && !storedUser) {
+        setLoading(false);
+      }
     });
 
     // Listen for auth changes
@@ -29,15 +55,21 @@ export const AuthProvider = ({ children }) => {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
-        setUser({
+        const userData = {
           id: session.user.id,
           email: session.user.email,
           name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.email,
-        });
+        };
+        setUser(userData);
         setToken(session.access_token);
+        // Sync to localStorage
+        localStorage.setItem('token', session.access_token);
+        localStorage.setItem('user', JSON.stringify(userData));
       } else {
         setUser(null);
         setToken(null);
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
       }
       setLoading(false);
     });
