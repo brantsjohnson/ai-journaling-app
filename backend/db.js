@@ -6,7 +6,9 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseServiceKey) {
   console.error('❌ Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env');
-  throw new Error('Supabase configuration missing');
+  console.error('⚠️  Database operations will fail until env vars are configured');
+  // Don't throw - let the app start and fail at runtime instead
+  // throw new Error('Supabase configuration missing');
 }
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey, {
