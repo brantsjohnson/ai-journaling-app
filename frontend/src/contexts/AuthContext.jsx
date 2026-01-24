@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { supabase } from '../config/supabase';
+import axios from 'axios';
+import { API_BASE } from '../config/api';
 
 export const AuthContext = createContext();
 
@@ -8,6 +10,20 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Sync Supabase user with backend database
+  const syncSupabaseUser = async (session) => {
+    try {
+      await axios.post(API_BASE + '/auth/sync-supabase-user', {
+        supabaseUserId: session.user.id,
+        email: session.user.email,
+        name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.email,
+      });
+      console.log('User synced with backend database');
+    } catch (err) {
+      console.error('Error syncing user with backend:', err);
+    }
+  };
 
   // Load user from Supabase session on mount
   useEffect(() => {
@@ -28,6 +44,10 @@ export const AuthProvider = ({ children }) => {
           // Sync with localStorage as backup
           localStorage.setItem('token', session.access_token);
           localStorage.setItem('user', JSON.stringify(userData));
+          
+          // Sync user with backend database
+          syncSupabaseUser(session);
+          
           setLoading(false);
           return;
         }
@@ -79,6 +99,9 @@ export const AuthProvider = ({ children }) => {
         // Keep localStorage in sync
         localStorage.setItem('token', session.access_token);
         localStorage.setItem('user', JSON.stringify(userData));
+        
+        // Sync user with backend database on auth state change
+        syncSupabaseUser(session);
       } else {
         setUser(null);
         setToken(null);
