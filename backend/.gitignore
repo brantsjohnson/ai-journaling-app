@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Environment variables
+.env
+config.env
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+journal.db*
+
+# Audio files and uploads
+audio_files/
+uploads/
+
+# Logs
+*.log
+logs/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+.vercel
+.env*.local

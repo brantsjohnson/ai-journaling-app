@@ -1,0 +1,68 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Environment variables (CRITICAL - contains API keys and secrets)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+config.env
+*.env
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+journal.db*
+
+# Audio files and uploads
+backend/audio_files/
+backend/uploads/
+audio_files/
+uploads/
+
+# Build outputs
+dist/
+dist-ssr/
+build/
+*.log
+logs/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+*.cache
+
+# Vite specific
+.vite/
+vite.config.*.timestamp-*
+
+# Coverage and testing
+coverage/
+.nyc_output/
+*.lcov
+
+# Optional: Keep package-lock.json (remove from ignore if you want to commit it)
+# package-lock.json is usually committed for consistency, but ignoring is fine too
