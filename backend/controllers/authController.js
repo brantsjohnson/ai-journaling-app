@@ -3,6 +3,58 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const supabase = require('../services/supabaseClient');
 
+// Sync Supabase user to local database
+exports.syncUser = async (req, res) => {
+  try {
+    // User must be authenticated via Supabase
+    if (!req.user?.supabaseUser) {
+      return res.status(400).json({
+        status: 'fail',
+        message: 'This endpoint is only for Supabase authenticated users'
+      });
+    }
+
+    const email = req.user.email;
+    const name = req.body.name || email.split('@')[0]; // Use email prefix if name not provided
+
+    // Check if user already exists in local database
+    const existingUserResult = await db.query('SELECT id, email, name FROM users WHERE email = $1', [email]);
+    
+    if (existingUserResult.rows[0]) {
+      // User already exists
+      return res.status(200).json({
+        status: 'success',
+        message: 'User already synced',
+        data: {
+          user: existingUserResult.rows[0]
+        }
+      });
+    }
+
+    // Create user in local database (without password since they use Supabase Auth)
+    const insertResult = await db.query(
+      'INSERT INTO users (email, name) VALUES ($1, $2) RETURNING id, email, name',
+      [email, name]
+    );
+    const newUser = insertResult.rows[0];
+
+    res.status(201).json({
+      status: 'success',
+      message: 'User synced successfully',
+      data: {
+        user: newUser
+      }
+    });
+  } catch (err) {
+    console.error('Sync user error:', err);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to sync user',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined,
+    });
+  }
+};
+
 // Signup - Create new user
 exports.signup = async (req, res) => {
   try {
