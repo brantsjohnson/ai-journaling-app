@@ -85,9 +85,13 @@ exports.transcribeAudio = async (req, res) => {
     const duration = parseInt(req.body?.duration_ms || 0, 10);
     const durationSeconds = Math.round(duration / 1000);
 
-    // Generate filename in format: MM-DD-YYYY--{entryNumber}--{duration}.mp3
+    // Add unique timestamp suffix to prevent filename collisions
+    // Format: MM-DD-YYYY--{entryNumber}--{duration}--{timestamp}.mp3
+    const uniqueSuffix = Date.now().toString().slice(-6); // Last 6 digits of timestamp for uniqueness
+    
+    // Generate filename in format: MM-DD-YYYY--{entryNumber}--{duration}--{unique}.mp3
     const fileExt = req.file.originalname?.split('.').pop() || 'mp3';
-    const filename = `${formattedDate}--${String(entryNumber).padStart(2, '0')}--${durationSeconds}.${fileExt}`;
+    const filename = `${formattedDate}--${String(entryNumber).padStart(2, '0')}--${durationSeconds}--${uniqueSuffix}.${fileExt}`;
     
     // Sanitize bucket name - remove any whitespace or newlines
     const bucket = (process.env.SUPABASE_AUDIO_BUCKET || 'audio').trim().replace(/[\r\n\t]/g, '');
@@ -97,15 +101,16 @@ exports.transcribeAudio = async (req, res) => {
     console.log('Entry number:', entryNumber, 'Date:', journalDate);
 
     // #region agent log
-    dbgLog('transcriptionController.js:pre-supabase', 'Before Supabase upload', { bucket, filename, entryNumber, journalDate }, 'H3');
+    dbgLog('transcriptionController.js:pre-supabase', 'Before Supabase upload', { bucket, filename, entryNumber, journalDate, uniqueSuffix }, 'H3');
     // #endregion
     
     // Upload directly to bucket root (not in audio/ subfolder to avoid double path)
+    // Use upsert: true to handle edge case where filename somehow still collides
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from(bucket)
       .upload(filename, req.file.buffer, {
         contentType: req.file.mimetype || 'audio/mpeg',
-        upsert: false,
+        upsert: true, // Allow overwrite if somehow filename still collides (shouldn't happen with timestamp)
       });
 
     if (uploadError) {
