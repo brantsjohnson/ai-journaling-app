@@ -233,10 +233,6 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for complete Vercel deployment instructions
 4. Push to the branch
 5. Create a Pull Request
 
-## License
-
-MIT License - feel free to use this project for learning or commercial purposes
-
 ## Support
 
 For issues or questions:
