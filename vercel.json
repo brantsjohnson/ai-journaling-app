@@ -11,9 +11,6 @@
   "functions": {
     "api/journal-ease/[...all].js": {
       "includeFiles": "backend/**"
-    },
-    "api/journal-ease/users/[...all].js": {
-      "includeFiles": "backend/**"
     }
   }
 }
