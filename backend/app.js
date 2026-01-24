@@ -73,6 +73,14 @@ app.use('/api/journal-ease', entryRouter);
 app.use('/api/journal-ease', userRouter);
 app.use('/api/journal-ease', transcriptRouter);
 
+// 404 handler for unmatched routes
+app.use((req, res) => {
+  console.log(`[404] ${req.method} ${req.url} - Route not found`);
+  res.status(404).json({
+    status: 'fail',
+    message: `Route ${req.method} ${req.url} not found`,
+  });
+});
 
 module.exports = app; 
 

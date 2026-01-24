@@ -9,46 +9,60 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Load user from localStorage and Supabase session on mount
+  // Load user from Supabase session on mount
   useEffect(() => {
-    // First, check localStorage for stored session (for email/password login)
-    const storedToken = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
-    
-    if (storedToken && storedUser) {
+    const restoreSession = async () => {
       try {
-        const userData = JSON.parse(storedUser);
-        setUser(userData);
-        setToken(storedToken);
+        // First, try to get Supabase session
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (session && !error) {
+          // Supabase session exists
+          const userData = {
+            id: session.user.id,
+            email: session.user.email,
+            name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.email,
+          };
+          setUser(userData);
+          setToken(session.access_token);
+          // Sync with localStorage as backup
+          localStorage.setItem('token', session.access_token);
+          localStorage.setItem('user', JSON.stringify(userData));
+          setLoading(false);
+          return;
+        }
+        
+        // If no Supabase session, try to restore from localStorage
+        const storedToken = localStorage.getItem('token');
+        const storedUser = localStorage.getItem('user');
+        
+        if (storedToken && storedUser) {
+          try {
+            const userData = JSON.parse(storedUser);
+            // Verify token is still valid by checking Supabase
+            const { data: { user } } = await supabase.auth.getUser(storedToken);
+            
+            if (user) {
+              setUser(userData);
+              setToken(storedToken);
+              setLoading(false);
+              return;
+            }
+          } catch (err) {
+            console.log('Stored session invalid, clearing...');
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+          }
+        }
+        
         setLoading(false);
       } catch (err) {
-        console.error('Error parsing stored user:', err);
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-      }
-    }
-
-    // Also check for Supabase session (for Google OAuth)
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        setUser({
-          id: session.user.id,
-          email: session.user.email,
-          name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.email,
-        });
-        setToken(session.access_token);
-        // Sync to localStorage
-        localStorage.setItem('token', session.access_token);
-        localStorage.setItem('user', JSON.stringify({
-          id: session.user.id,
-          email: session.user.email,
-          name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.email,
-        }));
-      }
-      if (!storedToken && !storedUser) {
+        console.error('Error restoring session:', err);
         setLoading(false);
       }
-    });
+    };
+
+    restoreSession();
 
     // Listen for auth changes
     const {
@@ -62,7 +76,7 @@ export const AuthProvider = ({ children }) => {
         };
         setUser(userData);
         setToken(session.access_token);
-        // Sync to localStorage
+        // Keep localStorage in sync
         localStorage.setItem('token', session.access_token);
         localStorage.setItem('user', JSON.stringify(userData));
       } else {

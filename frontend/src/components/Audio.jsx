@@ -135,19 +135,12 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
       if (mediaStream) {
         mediaStream.getTracks().forEach(track => track.stop());
       }
-      if (window.recordingStreamMonitor) {
-        clearInterval(window.recordingStreamMonitor);
-        window.recordingStreamMonitor = null;
-      }
-      if (window.recordingWakeLockHandler) {
-        document.removeEventListener('visibilitychange', window.recordingWakeLockHandler);
-        window.recordingWakeLockHandler = null;
-      }
+      // Release Wake Lock if still active
       if (wakeLock) {
-        wakeLock.release().catch(err => console.error('Error releasing Wake Lock:', err));
+        wakeLock.release().catch(err => console.error('Error releasing Wake Lock on unmount:', err));
       }
     };
-  }, []);
+  }, [wakeLock]);
 
   // Handle recording interruption (page navigation, tab switch, screen lock, etc.)
   useEffect(() => {
@@ -189,72 +182,44 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
       return e.returnValue;
     };
 
-    const handleVisibilityChange = () => {
+    const handleVisibilityChange = async () => {
       // If page becomes hidden (tab switch, minimize, screen lock) and recording is active
       if (document.hidden && isRecording) {
-        console.log('Page hidden during recording - attempting to save...');
+        console.log('Page hidden during recording - recording continues in background');
         
-        // Try to stop and save the recording
-        try {
-          if (recorder && mediaStream) {
-            recorder.stop().getMp3().then(async ([buffer, blob]) => {
-              const recordingDuration = recordingStartTime ? Date.now() - recordingStartTime : 0;
-              const file = new File(buffer, "audio_emergency_save.mp3", {
-                type: blob.type,
-                lastModified: Date.now(),
-              });
-              
-              // Store in localStorage as emergency backup
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                const base64data = reader.result;
-                localStorage.setItem('emergency_recording', JSON.stringify({
-                  audio: base64data,
-                  duration: recordingDuration,
-                  timestamp: Date.now(),
-                }));
-                console.log('Emergency recording saved to localStorage');
-              };
-              reader.readAsDataURL(blob);
-              
-              // Stop recording state
-              setIsRecording(false);
-              if (mediaStream) {
-                mediaStream.getTracks().forEach(track => track.stop());
-                setMediaStream(null);
-              }
-              
-              // Clear timer
-              if (window.recordingTimerInterval) {
-                clearInterval(window.recordingTimerInterval);
-                window.recordingTimerInterval = null;
-              }
-              
-              // Clear stream monitor
-              if (window.recordingStreamMonitor) {
-                clearInterval(window.recordingStreamMonitor);
-                window.recordingStreamMonitor = null;
-              }
-              
-              // Remove wake lock visibility handler
-              if (window.recordingWakeLockHandler) {
-                document.removeEventListener('visibilitychange', window.recordingWakeLockHandler);
-                window.recordingWakeLockHandler = null;
-              }
-              window.recordingAcquireWakeLock = null;
-              window.isCurrentlyRecording = false;
-              
-              // Release Wake Lock if active
-              if (wakeLock) {
-                wakeLock.release().catch(err => console.error('Error releasing Wake Lock:', err));
-                setWakeLock(null);
-              }
-            }).catch(err => {
-              console.error('Error saving emergency recording:', err);
+        // Try to reacquire Wake Lock if it was released
+        if (!wakeLock && 'wakeLock' in navigator) {
+          try {
+            const lock = await navigator.wakeLock.request('screen');
+            setWakeLock(lock);
+            console.log('Wake Lock reacquired');
+            
+            lock.addEventListener('release', () => {
+              console.log('Wake Lock released');
+              setWakeLock(null);
             });
+          } catch (err) {
+            console.warn('Could not reacquire Wake Lock:', err);
           }
-        } catch (err) {
-          console.error('Error in visibility change handler:', err);
+        }
+        
+        // Don't stop recording - just log that it's continuing
+        // The recording will continue as long as the browser allows
+      } else if (!document.hidden && isRecording) {
+        // Page is visible again - ensure Wake Lock is active
+        if (!wakeLock && 'wakeLock' in navigator) {
+          try {
+            const lock = await navigator.wakeLock.request('screen');
+            setWakeLock(lock);
+            console.log('Wake Lock reacquired after page visible');
+            
+            lock.addEventListener('release', () => {
+              console.log('Wake Lock released');
+              setWakeLock(null);
+            });
+          } catch (err) {
+            console.warn('Could not reacquire Wake Lock:', err);
+          }
         }
       }
     };
@@ -283,6 +248,24 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
         setBlobURL("");
       }
 
+      // Request Wake Lock to keep device awake during recording
+      if ('wakeLock' in navigator) {
+        try {
+          const lock = await navigator.wakeLock.request('screen');
+          setWakeLock(lock);
+          console.log('Wake Lock acquired - device will stay awake during recording');
+          
+          // Handle Wake Lock release (e.g., when user manually locks screen)
+          lock.addEventListener('release', () => {
+            console.log('Wake Lock released');
+            setWakeLock(null);
+          });
+        } catch (err) {
+          console.warn('Wake Lock not available:', err);
+          // Continue recording even if Wake Lock fails
+        }
+      }
+
       // Get a fresh MediaStream with echo cancellation for recording
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
@@ -300,78 +283,15 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
       // Start recorder - MicRecorder will use the active stream
       await recorder.start();
       
-      // Function to acquire/re-acquire Wake Lock
-      const acquireWakeLock = async () => {
-        if ('wakeLock' in navigator) {
-          try {
-            const lock = await navigator.wakeLock.request('screen');
-            setWakeLock(lock);
-            console.log('Wake Lock acquired - screen will stay on during recording');
-            
-            // Handle wake lock release - try to re-acquire if still recording
-            lock.addEventListener('release', () => {
-              console.log('Wake Lock released - attempting to re-acquire');
-              setWakeLock(null);
-              // Re-acquire if still recording (check state directly)
-              setTimeout(() => {
-                if (window.isCurrentlyRecording && window.recordingAcquireWakeLock) {
-                  window.recordingAcquireWakeLock();
-                }
-              }, 100);
-            });
-          } catch (err) {
-            console.warn('Wake Lock not available:', err);
-            // If wake lock fails, it's okay - recording will still work
-          }
-        }
-      };
-      
-      // Acquire Wake Lock to prevent screen from sleeping
-      await acquireWakeLock();
-      
-      // Re-acquire wake lock when page becomes visible again (if it was released)
-      const handleVisibilityChangeForWakeLock = async () => {
-        if (!document.hidden && window.isCurrentlyRecording && !wakeLock && 'wakeLock' in navigator) {
-          console.log('Page visible again - re-acquiring Wake Lock');
-          if (window.recordingAcquireWakeLock) {
-            await window.recordingAcquireWakeLock();
-          }
-        }
-      };
-      
-      document.addEventListener('visibilitychange', handleVisibilityChangeForWakeLock);
-      
-      // Store handler and acquire function for cleanup and re-acquisition
-      window.recordingWakeLockHandler = handleVisibilityChangeForWakeLock;
-      window.recordingAcquireWakeLock = acquireWakeLock;
-      
-      // Monitor stream state to detect if recording gets paused
-      const checkStreamState = () => {
-        if (stream && stream.getTracks().length > 0) {
-          const track = stream.getTracks()[0];
-          if (track.readyState === 'ended' || track.muted) {
-            console.warn('Recording track ended or muted - attempting recovery');
-            // Try to recover by stopping and notifying user
-            if (isRecording) {
-              stop();
-              alert('Recording was interrupted. Your audio has been saved.');
-            }
-          }
-        }
-      };
-      
-      // Monitor stream every 2 seconds
-      const streamMonitor = setInterval(checkStreamState, 2000);
-      window.recordingStreamMonitor = streamMonitor;
-      
       const startTime = Date.now();
       setRecordingStartTime(startTime);
       setElapsedTime(0);
       setIsRecording(true);
       setMediaStream(stream);
       
-      // Store recording state for wake lock re-acquisition
-      window.isCurrentlyRecording = true;
+      // Store recording state in localStorage for recovery
+      localStorage.setItem('recording_active', 'true');
+      localStorage.setItem('recording_start_time', startTime.toString());
       
       // Start timer interval if showTimer is true
       if (showTimer) {
@@ -395,27 +315,7 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
   };
 
   const stop = () => {
-    // Clear timer interval
-    if (window.recordingTimerInterval) {
-      clearInterval(window.recordingTimerInterval);
-      window.recordingTimerInterval = null;
-    }
-    
-    // Clear stream monitor
-    if (window.recordingStreamMonitor) {
-      clearInterval(window.recordingStreamMonitor);
-      window.recordingStreamMonitor = null;
-    }
-    
-    // Remove wake lock visibility handler
-    if (window.recordingWakeLockHandler) {
-      document.removeEventListener('visibilitychange', window.recordingWakeLockHandler);
-      window.recordingWakeLockHandler = null;
-    }
-    window.recordingAcquireWakeLock = null;
-    window.isCurrentlyRecording = false;
-    
-    // Release Wake Lock if active
+    // Release Wake Lock
     if (wakeLock) {
       wakeLock.release().then(() => {
         console.log('Wake Lock released');
@@ -423,6 +323,16 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
       }).catch(err => {
         console.error('Error releasing Wake Lock:', err);
       });
+    }
+    
+    // Clear recording state from localStorage
+    localStorage.removeItem('recording_active');
+    localStorage.removeItem('recording_start_time');
+    
+    // Clear timer interval
+    if (window.recordingTimerInterval) {
+      clearInterval(window.recordingTimerInterval);
+      window.recordingTimerInterval = null;
     }
     
     // Stop the media stream tracks to release the microphone

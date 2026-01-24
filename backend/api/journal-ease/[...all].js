@@ -76,38 +76,37 @@ module.exports = async (req, res) => {
   }
   
   // Vercel's behavior with [...all] catch-all:
-  // - Request to: /api/journal-ease/auth/login
-  // - Vercel may pass: req.url = '/api/journal-ease/auth/login' (full path) OR '/auth/login' (stripped)
-  // - We need to ensure it's '/api/journal-ease/auth/login' for Express
+  // - Request to: /api/journal-ease/auth/signup
+  // - Vercel passes the path AFTER /api/journal-ease as the catch-all parameter
+  // - So req.url will be something like '/auth/signup' or just the path segments
+  // - We need to reconstruct '/api/journal-ease/auth/signup' for Express
   
-  const originalUrl = req.url || req.path || '/';
+  // Get the current URL - Vercel may have stripped the prefix
+  let requestPath = req.url || req.path || '/';
   
-  // Only add prefix if it's not already there
-  if (!originalUrl.startsWith('/api/journal-ease')) {
-    // Path was stripped, add prefix back
-    const pathAfterPrefix = originalUrl.startsWith('/') ? originalUrl : '/' + originalUrl;
-    req.url = '/api/journal-ease' + pathAfterPrefix;
-    console.log('Path was stripped, added prefix. New req.url:', req.url);
-  } else {
-    // Path already includes prefix, use as-is
-    req.url = originalUrl;
-    console.log('Path already correct, using as-is:', req.url);
+  // If the path doesn't start with /api/journal-ease, add it
+  // This handles the case where Vercel strips the prefix
+  if (!requestPath.startsWith('/api/journal-ease')) {
+    // Ensure path starts with /
+    if (!requestPath.startsWith('/')) {
+      requestPath = '/' + requestPath;
+    }
+    // Add the prefix
+    requestPath = '/api/journal-ease' + requestPath;
   }
   
-  // Set CORS headers on all responses (not just OPTIONS)
-  // Origin was already extracted above
+  // Update request properties for Express routing
+  req.url = requestPath;
+  req.originalUrl = requestPath;
+  // Don't set req.path directly as Express calculates it
+  
+  console.log('Final path for Express:', requestPath);
+  console.log('Request method:', req.method);
+  
+  // Set CORS headers on all responses
   setCorsHeaders(res, origin);
   
-  // Pass to Express app with error handling
-  try {
-    return app(req, res);
-  } catch (error) {
-    console.error('Error in Express app:', error);
-    // Ensure CORS headers are set even on errors
-    setCorsHeaders(res, origin);
-    return res.status(500).json({ 
-      status: 'error', 
-      message: 'Internal server error' 
-    });
-  }
+  // Pass to Express app
+  // Express app is a request handler, so we can call it directly
+  return app(req, res);
 };
