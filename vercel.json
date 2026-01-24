@@ -6,6 +6,10 @@
     {
       "source": "/((?!api).*)",
       "destination": "/index.html"
+    },
+    {
+      "source": "/api/journal-ease/users/:path*",
+      "destination": "/api/journal-ease/[...all]"
     }
   ],
   "functions": {
