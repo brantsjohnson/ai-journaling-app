@@ -349,18 +349,33 @@ exports.deleteEntry = async (req, res) => {
 
 // Create a new entry
 exports.createEntry = async (req, res) => {
+  // #region agent log
+  const dbgLog = (loc, msg, data, hyp) => console.log('[DEBUG]', JSON.stringify({ location: loc, message: msg, data, hypothesisId: hyp, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }));
+  dbgLog('entryController.js:createEntry:entry', 'CreateEntry handler entered', { hasUser: !!req.user, hasBody: !!req.body, bodyKeys: req.body ? Object.keys(req.body) : [] }, 'H6');
+  // #endregion
+  
   let userId;
   const { transcript, duration_ms, local_path, journal_date } = req.body;
 
   try {
     // ALWAYS use the authenticated user's ID from the token, not from URL params
     // If Supabase user, convert UUID to local user ID
+    // #region agent log
+    dbgLog('entryController.js:createEntry:pre-user-lookup', 'Before user ID lookup', { hasSupabaseUser: !!req.user?.supabaseUser, hasEmail: !!req.user?.email, hasUserId: !!req.user?.userId }, 'H6');
+    // #endregion
+    
     if (req.user?.supabaseUser) {
       const email = req.user.email;
       const userResult = await db.query('SELECT id FROM users WHERE email = $1', [email]);
       if (userResult.rows[0]) {
         userId = userResult.rows[0].id;
+        // #region agent log
+        dbgLog('entryController.js:createEntry:user-found', 'User found in DB', { userId, email }, 'H6');
+        // #endregion
       } else {
+        // #region agent log
+        dbgLog('entryController.js:createEntry:user-not-found', 'User not in local DB', { email }, 'H6');
+        // #endregion
         return res.status(404).json({
           status: 'fail',
           message: 'User not found in local database. Please sync your account first.'
@@ -369,11 +384,17 @@ exports.createEntry = async (req, res) => {
     } else {
       // For regular JWT users
       userId = req.user?.userId;
+      // #region agent log
+      dbgLog('entryController.js:createEntry:jwt-user', 'Using JWT user ID', { userId }, 'H6');
+      // #endregion
     }
 
     // Ensure userId is an integer
     userId = parseInt(userId, 10);
     if (isNaN(userId)) {
+      // #region agent log
+      dbgLog('entryController.js:createEntry:invalid-userid', 'Invalid user ID', { userId: req.user?.userId }, 'H6');
+      // #endregion
       return res.status(400).json({
         status: 'fail',
         message: 'Invalid user ID'
@@ -381,6 +402,11 @@ exports.createEntry = async (req, res) => {
     }
 
     const journalDate = journal_date || new Date().toISOString().split('T')[0];
+    
+    // #region agent log
+    dbgLog('entryController.js:createEntry:pre-insert', 'Before DB insert', { userId, journalDate, hasTranscript: !!transcript, hasLocalPath: !!local_path }, 'H6');
+    // #endregion
+    
     const { rows } = await db.query(
       `INSERT INTO entries (user_id, transcript, duration_ms, local_path, journal_date, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
@@ -388,6 +414,10 @@ exports.createEntry = async (req, res) => {
       [userId, transcript || null, duration_ms || null, local_path || null, journalDate]
     );
     const entry = rows[0];
+    
+    // #region agent log
+    dbgLog('entryController.js:createEntry:insert-success', 'Entry created', { entryId: entry?.id }, 'H6');
+    // #endregion
 
     // TODO: Implement Google Drive sync when ready
     // if (entry.drive_sync_enabled) {
@@ -398,6 +428,9 @@ exports.createEntry = async (req, res) => {
 
     res.status(201).json({ status: 'success', data: { entry } });
   } catch (err) {
+    // #region agent log
+    dbgLog('entryController.js:createEntry:catch', 'CreateEntry error', { errorMessage: err.message, errorCode: err.code }, 'H6');
+    // #endregion
     console.error('Create entry error:', err);
     res.status(500).json({ status: 'error', message: 'Internal server error' });
   }
