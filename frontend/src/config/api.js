@@ -18,4 +18,13 @@ const getApiBase = () => {
 
 const API_BASE = getApiBase();
 
+// Debug logging
+console.log('🔍 API Configuration Debug:');
+console.log('  - VITE_API_URL:', import.meta.env.VITE_API_URL);
+console.log('  - VITE_API_BASE:', import.meta.env.VITE_API_BASE);
+console.log('  - PROD:', import.meta.env.PROD);
+console.log('  - Hostname:', typeof window !== 'undefined' ? window.location.hostname : 'N/A');
+console.log('  - Final API_BASE:', API_BASE);
+console.log('  - Full URL example:', API_BASE + '/auth/login');
+
 export { API_BASE };

@@ -71,11 +71,19 @@ const Landing = () => {
 
     try {
       const endpoint = isSignup ? "/auth/signup" : "/auth/login";
+      const fullUrl = API_BASE + endpoint;
       const payload = isSignup
         ? { email: formData.email, password: formData.password, name: formData.name }
         : { email: formData.email, password: formData.password };
 
-      const response = await axios.post(API_BASE + endpoint, payload);
+      console.log('🔍 Login/Signup Debug:');
+      console.log('  - API_BASE:', API_BASE);
+      console.log('  - Endpoint:', endpoint);
+      console.log('  - Full URL:', fullUrl);
+      console.log('  - Method: POST');
+      console.log('  - Payload:', { ...payload, password: '***' });
+
+      const response = await axios.post(fullUrl, payload);
 
       if (response.data.status === "success") {
         // Store user and token
@@ -84,11 +92,20 @@ const Landing = () => {
         navigate("/me");
       }
     } catch (err) {
-      console.error("Auth error:", err);
-      setError(
-        err.response?.data?.message || 
-        (isSignup ? "Signup failed. Please try again." : "Login failed. Please check your credentials.")
-      );
+      console.error("❌ Auth error:", err);
+      console.error("  - Error message:", err.message);
+      console.error("  - Error response:", err.response);
+      console.error("  - Error status:", err.response?.status);
+      console.error("  - Error data:", err.response?.data);
+      console.error("  - Request URL:", err.config?.url);
+      console.error("  - Request method:", err.config?.method);
+      
+      const errorMessage = err.response?.data?.message || 
+        err.message ||
+        (isSignup ? "Signup failed. Please try again." : "Login failed. Please check your credentials.");
+      
+      console.error("  - Final error message:", errorMessage);
+      setError(errorMessage);
       setLoading(false);
     }
   };

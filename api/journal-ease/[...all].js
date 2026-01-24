@@ -1,4 +1,22 @@
-const app = require('../../backend/app');
+// Debug: Check if we can load the app
+let app;
+try {
+  console.log('📦 Loading Express app from ../../backend/app...');
+  app = require('../../backend/app');
+  console.log('✅ Express app loaded successfully');
+} catch (error) {
+  console.error('❌ Failed to load Express app:', error);
+  console.error('❌ Error stack:', error.stack);
+  // Export a simple error handler
+  module.exports = async (req, res) => {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to load backend application',
+      error: error.message
+    });
+  };
+  throw error;
+}
 
 // Helper function to set CORS headers
 function setCorsHeaders(res, origin) {
@@ -40,11 +58,14 @@ function setCorsHeaders(res, origin) {
 // Export as Vercel serverless function handler
 module.exports = async (req, res) => {
   // Log ALL requests immediately for debugging
-  console.log('=== Serverless Function Invoked ===');
-  console.log('Method:', req.method);
-  console.log('Original req.url:', req.url);
-  console.log('Original req.path:', req.path);
-  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('🚀 === Serverless Function Invoked ===');
+  console.log('📍 Request received at:', new Date().toISOString());
+  console.log('🔧 Method:', req.method);
+  console.log('📍 Original req.url:', req.url);
+  console.log('📍 Original req.path:', req.path);
+  console.log('📍 req.originalUrl:', req.originalUrl);
+  console.log('📍 Full request object keys:', Object.keys(req));
+  console.log('📋 Headers:', JSON.stringify(req.headers, null, 2));
   
   // Extract origin from headers
   let origin = req.headers.origin;
@@ -108,5 +129,22 @@ module.exports = async (req, res) => {
   
   // Pass to Express app
   // Express app is a request handler, so we can call it directly
-  return app(req, res);
+  console.log('🔄 Passing request to Express app...');
+  try {
+    const result = await app(req, res);
+    console.log('✅ Express app handled request');
+    return result;
+  } catch (error) {
+    console.error('❌ Error in Express app:', error);
+    console.error('❌ Error stack:', error.stack);
+    if (!res.headersSent) {
+      setCorsHeaders(res, origin);
+      res.status(500).json({
+        status: 'error',
+        message: 'Internal server error',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+    return;
+  }
 };
