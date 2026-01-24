@@ -139,6 +139,10 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
         clearInterval(window.recordingStreamMonitor);
         window.recordingStreamMonitor = null;
       }
+      if (window.recordingWakeLockHandler) {
+        document.removeEventListener('visibilitychange', window.recordingWakeLockHandler);
+        window.recordingWakeLockHandler = null;
+      }
       if (wakeLock) {
         wakeLock.release().catch(err => console.error('Error releasing Wake Lock:', err));
       }
@@ -232,6 +236,14 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
                 window.recordingStreamMonitor = null;
               }
               
+              // Remove wake lock visibility handler
+              if (window.recordingWakeLockHandler) {
+                document.removeEventListener('visibilitychange', window.recordingWakeLockHandler);
+                window.recordingWakeLockHandler = null;
+              }
+              window.recordingAcquireWakeLock = null;
+              window.isCurrentlyRecording = false;
+              
               // Release Wake Lock if active
               if (wakeLock) {
                 wakeLock.release().catch(err => console.error('Error releasing Wake Lock:', err));
@@ -288,22 +300,50 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
       // Start recorder - MicRecorder will use the active stream
       await recorder.start();
       
-      // Try to acquire Wake Lock to prevent screen from sleeping (if supported)
-      if ('wakeLock' in navigator) {
-        try {
-          const lock = await navigator.wakeLock.request('screen');
-          setWakeLock(lock);
-          console.log('Wake Lock acquired - screen will stay on during recording');
-          
-          // Handle wake lock release
-          lock.addEventListener('release', () => {
-            console.log('Wake Lock released');
-            setWakeLock(null);
-          });
-        } catch (err) {
-          console.warn('Wake Lock not available:', err);
+      // Function to acquire/re-acquire Wake Lock
+      const acquireWakeLock = async () => {
+        if ('wakeLock' in navigator) {
+          try {
+            const lock = await navigator.wakeLock.request('screen');
+            setWakeLock(lock);
+            console.log('Wake Lock acquired - screen will stay on during recording');
+            
+            // Handle wake lock release - try to re-acquire if still recording
+            lock.addEventListener('release', () => {
+              console.log('Wake Lock released - attempting to re-acquire');
+              setWakeLock(null);
+              // Re-acquire if still recording (check state directly)
+              setTimeout(() => {
+                if (window.isCurrentlyRecording && window.recordingAcquireWakeLock) {
+                  window.recordingAcquireWakeLock();
+                }
+              }, 100);
+            });
+          } catch (err) {
+            console.warn('Wake Lock not available:', err);
+            // If wake lock fails, it's okay - recording will still work
+          }
         }
-      }
+      };
+      
+      // Acquire Wake Lock to prevent screen from sleeping
+      await acquireWakeLock();
+      
+      // Re-acquire wake lock when page becomes visible again (if it was released)
+      const handleVisibilityChangeForWakeLock = async () => {
+        if (!document.hidden && window.isCurrentlyRecording && !wakeLock && 'wakeLock' in navigator) {
+          console.log('Page visible again - re-acquiring Wake Lock');
+          if (window.recordingAcquireWakeLock) {
+            await window.recordingAcquireWakeLock();
+          }
+        }
+      };
+      
+      document.addEventListener('visibilitychange', handleVisibilityChangeForWakeLock);
+      
+      // Store handler and acquire function for cleanup and re-acquisition
+      window.recordingWakeLockHandler = handleVisibilityChangeForWakeLock;
+      window.recordingAcquireWakeLock = acquireWakeLock;
       
       // Monitor stream state to detect if recording gets paused
       const checkStreamState = () => {
@@ -329,6 +369,9 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
       setElapsedTime(0);
       setIsRecording(true);
       setMediaStream(stream);
+      
+      // Store recording state for wake lock re-acquisition
+      window.isCurrentlyRecording = true;
       
       // Start timer interval if showTimer is true
       if (showTimer) {
@@ -363,6 +406,14 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
       clearInterval(window.recordingStreamMonitor);
       window.recordingStreamMonitor = null;
     }
+    
+    // Remove wake lock visibility handler
+    if (window.recordingWakeLockHandler) {
+      document.removeEventListener('visibilitychange', window.recordingWakeLockHandler);
+      window.recordingWakeLockHandler = null;
+    }
+    window.recordingAcquireWakeLock = null;
+    window.isCurrentlyRecording = false;
     
     // Release Wake Lock if active
     if (wakeLock) {
