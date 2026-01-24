@@ -10,6 +10,13 @@ import { API_BASE } from "../config/api";
 import { useScript } from "./ScriptContext";
 import { supabase } from "../config/supabase";
 
+// #region agent log
+const DEBUG_INGEST = 'http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45';
+const dbg = (payload) => {
+  fetch(DEBUG_INGEST, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }) }).catch(() => {});
+};
+// #endregion
+
 // Helper function to get local date in YYYY-MM-DD format
 const getLocalDateString = () => {
     const now = new Date();
@@ -124,17 +131,25 @@ const EntryList = ({ showRecordingControls = false }) => {
             return;
         }
 
+        // Pass userId as-is (can be UUID or numeric). Backend will use JWT token to identify user.
+        const saveUrl = API_BASE + '/users/' + userId + '/entries';
+        
         try {
-            // Pass userId as-is (can be UUID or numeric). Backend will use JWT token to identify user.
+            const savePayload = {
+                transcript: script,
+                duration_ms: recordingData.duration_ms,
+                local_path: recordingData.local_path,
+                journal_date: journalDate,
+                transcript_id: null,
+            };
+            
+            // #region agent log
+            dbg({ location: 'EntryList.jsx:pre-save', message: 'About to POST save entry', data: { url: saveUrl, hasToken: !!token, userId, hasScript: !!script, hasLocalPath: !!recordingData.local_path }, hypothesisId: 'H6' });
+            // #endregion
+            
             const response = await axios.post(
-                API_BASE + '/users/' + userId + '/entries',
-                {
-                    transcript: script,
-                    duration_ms: recordingData.duration_ms,
-                    local_path: recordingData.local_path,
-                    journal_date: journalDate,
-                    transcript_id: null,
-                },
+                saveUrl,
+                savePayload,
                 {
                     headers: {
                         'Authorization': `Bearer ${token}`,
@@ -142,6 +157,11 @@ const EntryList = ({ showRecordingControls = false }) => {
                     },
                 }
             );
+            
+            // #region agent log
+            dbg({ location: 'EntryList.jsx:save-success', message: 'Save entry succeeded', data: { status: response.status, hasEntry: !!response.data?.data?.entry }, hypothesisId: 'H6' });
+            // #endregion
+            
             const newEntryData = response.data.data.entry;
 
             // Save transcript to transcripts table if we have a transcript
@@ -187,6 +207,11 @@ const EntryList = ({ showRecordingControls = false }) => {
             // Close the popup
             setPopupActive(false);
         } catch (error) {
+            const status = error.response?.status;
+            const msg = error.response?.data?.message ?? null;
+            // #region agent log
+            dbg({ location: 'EntryList.jsx:save-error', message: 'Save entry failed', data: { status, message: msg, code: error.code, url: API_BASE + '/users/' + userId + '/entries' }, hypothesisId: 'H6' });
+            // #endregion
             console.error('Error creating entry:', error);
             if (error.response?.status === 404 && error.response?.data?.message?.includes('not found in local database')) {
                 alert('Your account needs to be synced. Please contact support.');
