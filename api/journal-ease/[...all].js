@@ -1,6 +1,7 @@
 // Catch-all route for all API endpoints
-// From api/journal-ease/: ../ = api/, ../../ = project root. ../../../ goes above root (broken on Vercel).
-const app = require('../../backend/app');
+// Use path.join + __dirname so resolution works in Vercel serverless (sometimes relative require fails).
+const path = require('path');
+const app = require(path.join(__dirname, '..', '..', 'backend', 'app'));
 
 // Helper function to set CORS headers
 function setCorsHeaders(res, origin) {
