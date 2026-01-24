@@ -1,7 +1,24 @@
 // Catch-all route for all API endpoints
-// Use path.join + __dirname so resolution works in Vercel serverless (sometimes relative require fails).
+// Lazy-load backend app inside handler to catch require errors and provide better diagnostics
 const path = require('path');
-const app = require(path.join(__dirname, '..', '..', 'backend', 'app'));
+const fs = require('fs');
+
+let app = null;
+let appLoadError = null;
+
+// Try to load backend app at module level, but don't fail if it doesn't work
+try {
+  const backendAppPath = path.join(__dirname, '..', '..', 'backend', 'app');
+  console.log('[DEBUG] Attempting to require backend app from:', backendAppPath);
+  console.log('[DEBUG] __dirname:', __dirname);
+  console.log('[DEBUG] Backend app exists?', fs.existsSync(backendAppPath + '.js'));
+  app = require(backendAppPath);
+  console.log('[DEBUG] Backend app loaded successfully');
+} catch (err) {
+  appLoadError = err;
+  console.error('[DEBUG] Failed to load backend app:', err.message);
+  console.error('[DEBUG] Error stack:', err.stack);
+}
 
 // Helper function to set CORS headers
 function setCorsHeaders(res, origin) {
@@ -64,6 +81,31 @@ module.exports = async (req, res) => {
   
   // Set CORS
   setCorsHeaders(res, origin);
+  
+  // If backend app failed to load, return detailed error
+  if (!app) {
+    const backendAppPath = path.join(__dirname, '..', '..', 'backend', 'app');
+    const errorDetails = {
+      message: 'Backend app module not loaded',
+      requirePath: backendAppPath,
+      __dirname: __dirname,
+      error: appLoadError?.message || 'Unknown error',
+      stack: appLoadError?.stack || 'No stack trace',
+      filesInParent: fs.existsSync(path.join(__dirname, '..')) ? fs.readdirSync(path.join(__dirname, '..')).slice(0, 10) : 'parent dir not found',
+      filesInRoot: fs.existsSync(path.join(__dirname, '..', '..')) ? fs.readdirSync(path.join(__dirname, '..', '..')).slice(0, 10) : 'root dir not found',
+    };
+    console.error('[DEBUG] Backend app not loaded. Details:', JSON.stringify(errorDetails, null, 2));
+    if (!res.headersSent) {
+      setCorsHeaders(res, origin);
+      return res.status(500).json({
+        status: 'error',
+        message: 'Backend module not found',
+        error: appLoadError?.message || 'Cannot load backend/app',
+        details: process.env.NODE_ENV === 'development' ? errorDetails : undefined
+      });
+    }
+    return;
+  }
   
   // Pass to Express
   try {
