@@ -4,36 +4,45 @@ const { createClient } = require('@supabase/supabase-js');
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+let supabase;
+
 if (!supabaseUrl || !supabaseServiceKey) {
   console.error('❌ Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env');
   console.error('⚠️  Database operations will fail until env vars are configured');
-  // Don't throw - let the app start and fail at runtime instead
-  // throw new Error('Supabase configuration missing');
-}
+  // Create a dummy client to prevent crashes
+  supabase = {
+    from: () => ({
+      select: () => Promise.resolve({ data: null, error: { message: 'Database not configured' } }),
+      insert: () => Promise.resolve({ data: null, error: { message: 'Database not configured' } }),
+      update: () => Promise.resolve({ data: null, error: { message: 'Database not configured' } }),
+      delete: () => Promise.resolve({ data: null, error: { message: 'Database not configured' } }),
+    }),
+  };
+} else {
+  supabase = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-  },
-});
+  // Test connection
+  (async () => {
+    try {
+      const { data, error } = await supabase.from('users').select('count', { count: 'exact', head: true });
 
-// Test connection
-(async () => {
-  try {
-    const { data, error } = await supabase.from('users').select('count', { count: 'exact', head: true });
-
-    if (error && error.code === '42P01') {
-      console.log('✅ Supabase connected (run schema.sql in Supabase SQL Editor to create tables)');
-    } else if (error) {
-      console.log('⚠️  Supabase connection warning:', error.message);
-    } else {
-      console.log('✅ Database connected successfully via Supabase client');
+      if (error && error.code === '42P01') {
+        console.log('✅ Supabase connected (run schema.sql in Supabase SQL Editor to create tables)');
+      } else if (error) {
+        console.log('⚠️  Supabase connection warning:', error.message);
+      } else {
+        console.log('✅ Database connected successfully via Supabase client');
+      }
+    } catch (err) {
+      console.error('❌ Error connecting to Supabase:', err.message);
     }
-  } catch (err) {
-    console.error('❌ Error connecting to Supabase:', err.message);
-  }
-})();
+  })();
+}
 
 /**
  * SQL query wrapper for Supabase
