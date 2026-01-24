@@ -376,6 +376,8 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
         if (journalDate) {
           formData.append("journal_date", journalDate);
         }
+        // Include duration for filename generation
+        formData.append("duration_ms", recordingDuration.toString());
 
         const fullUrl = `${API_BASE}/transcribe`;
         // #region agent log

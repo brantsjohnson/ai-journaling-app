@@ -597,7 +597,7 @@ const Entry = ({
 
             setAudioError(null);
 
-            // Check if it's a full URL (old format) or just a filename (new private format)
+            // Check if it's a full URL (old format) or just a filename (new format)
             if (entry.local_path.startsWith('http://') || entry.local_path.startsWith('https://')) {
                 // Old format: public URL (for backwards compatibility)
                 let fixedUrl = entry.local_path;
@@ -606,11 +606,10 @@ const Entry = ({
                 }
                 setAudioURL(fixedUrl);
             } else {
-                // New format: filename only - get signed URL from private bucket
+                // New format: filename only (e.g., "01-24-2026--01--300.mp3")
+                // Get public URL from Supabase storage
                 try {
-                    // The backend saves just the filename (e.g., "01-24-2026--01--300.mp3")
-                    // Since we're using .from('audio'), the path should be just the filename
-                    // Remove any "audio/" prefix if present
+                    // Clean the file path - remove any "audio/" prefix if present
                     let filePath = entry.local_path;
                     console.log('Original local_path:', filePath);
                     
@@ -622,38 +621,20 @@ const Entry = ({
                     // Remove any leading slashes
                     filePath = filePath.replace(/^\/+/, '');
                     
-                    console.log('Cleaned filePath for signed URL:', filePath);
+                    console.log('Cleaned filePath for public URL:', filePath);
                     console.log('Entry ID:', entry.id, 'Entry date:', entry.journal_date);
                     
-                    // First, try to check if file exists by listing
-                    const { data: listData, error: listError } = await supabase.storage
+                    // Get public URL from Supabase storage (bucket is public)
+                    const { data: publicUrlData } = supabase.storage
                         .from('audio')
-                        .list('', { limit: 1000, search: filePath });
+                        .getPublicUrl(filePath);
                     
-                    if (listError) {
-                        console.warn('Could not list files:', listError);
+                    if (publicUrlData?.publicUrl) {
+                        console.log('Successfully generated public URL for:', filePath);
+                        console.log('Public URL:', publicUrlData.publicUrl);
+                        setAudioURL(publicUrlData.publicUrl);
                     } else {
-                        const fileFound = listData?.some(file => file.name === filePath);
-                        console.log('File search result:', { fileFound, searchedPath: filePath, filesFound: listData?.length });
-                    }
-                    
-                    // Get signed URL (expires in 1 hour)
-                    // For private buckets, this requires authentication
-                    const { data, error } = await supabase.storage
-                        .from('audio')
-                        .createSignedUrl(filePath, 3600); // 1 hour expiry
-
-                    if (error) {
-                        console.error('Error creating signed URL:', error);
-                        console.error('Error details:', JSON.stringify(error, null, 2));
-                        console.error('Attempted filePath:', filePath);
-                        setAudioError('Audio file not accessible');
-                        setAudioURL(null);
-                    } else if (data?.signedUrl) {
-                        console.log('Successfully created signed URL for:', filePath);
-                        setAudioURL(data.signedUrl);
-                    } else {
-                        console.error('No signed URL returned, data:', data);
+                        console.error('No public URL returned, data:', publicUrlData);
                         setAudioError('Audio file not found');
                         setAudioURL(null);
                     }
@@ -818,13 +799,13 @@ const Entry = ({
                     {/* Audio Playback - Pill Style */}
                     {entry.local_path && (
                         <div 
-                            className="bg-white/5 rounded-full p-1.5 shadow-inner border border-white/10 flex items-center gap-2 max-w-full" 
+                            className="bg-white/5 rounded-full p-3 shadow-inner border border-white/10 flex items-center gap-3 max-w-full" 
                             onClick={(e) => e.stopPropagation()}
                             onMouseDown={(e) => e.stopPropagation()}
                         >
                             <audio 
                                 controls 
-                                className="w-full h-8 invert opacity-90"
+                                className="w-full h-14 invert opacity-90"
                                 src={audioURL}
                                 preload="metadata"
                                 onClick={(e) => e.stopPropagation()}

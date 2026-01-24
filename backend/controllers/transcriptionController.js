@@ -1,7 +1,7 @@
 const axios = require('axios');
 const FormData = require('form-data');
 const supabase = require('../services/supabaseClient');
-const { v4: uuidv4 } = require('uuid');
+const db = require('../db');
 
 // #region agent log
 const dbgLog = (loc, msg, data, hyp) => console.log('[DEBUG]', JSON.stringify({ location: loc, message: msg, data, hypothesisId: hyp, timestamp: Date.now(), sessionId: 'debug-session' }));
@@ -34,20 +34,76 @@ exports.transcribeAudio = async (req, res) => {
       size: req.file.size
     });
 
-    // Upload to Supabase Storage
+    // Get user ID from request (for authenticated requests)
+    let userId = null;
+    if (req.user) {
+      if (req.user?.supabaseUser) {
+        const email = req.user.email;
+        const userResult = await db.query('SELECT id FROM users WHERE email = $1', [email]);
+        if (userResult.rows[0]) {
+          userId = userResult.rows[0].id;
+        }
+      } else {
+        userId = req.user?.userId;
+      }
+      userId = parseInt(userId, 10);
+    }
+
+    // Get journal date from request body or use today's date
+    let journalDate = req.body?.journal_date || new Date().toISOString().split('T')[0];
+    
+    // Ensure date is in YYYY-MM-DD format
+    if (journalDate && !journalDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      // Try to parse and reformat if needed
+      const parsedDate = new Date(journalDate);
+      if (!isNaN(parsedDate.getTime())) {
+        journalDate = parsedDate.toISOString().split('T')[0];
+      } else {
+        journalDate = new Date().toISOString().split('T')[0];
+      }
+    }
+    
+    // Format date as MM-DD-YYYY for filename
+    const dateParts = journalDate.split('-');
+    const formattedDate = `${dateParts[1]}-${dateParts[2]}-${dateParts[0]}`;
+    
+    // Count existing entries for this user on this date to get entry number
+    let entryNumber = 1;
+    if (userId && !isNaN(userId)) {
+      try {
+        const countResult = await db.query(
+          'SELECT COUNT(*) as count FROM entries WHERE user_id = $1 AND journal_date = $2',
+          [userId, journalDate]
+        );
+        entryNumber = parseInt(countResult.rows[0]?.count || 0, 10) + 1;
+      } catch (err) {
+        console.warn('Could not count entries, using entry number 1:', err.message);
+      }
+    }
+
+    // Get duration if provided (for filename)
+    const duration = parseInt(req.body?.duration_ms || 0, 10);
+    const durationSeconds = Math.round(duration / 1000);
+
+    // Generate filename in format: MM-DD-YYYY--{entryNumber}--{duration}.mp3
     const fileExt = req.file.originalname?.split('.').pop() || 'mp3';
-    const filename = `${uuidv4()}.${fileExt}`;
+    const filename = `${formattedDate}--${String(entryNumber).padStart(2, '0')}--${durationSeconds}.${fileExt}`;
+    
     // Sanitize bucket name - remove any whitespace or newlines
     const bucket = (process.env.SUPABASE_AUDIO_BUCKET || 'audio').trim().replace(/[\r\n\t]/g, '');
 
     console.log('Uploading to Supabase bucket:', bucket);
+    console.log('Generated filename:', filename);
+    console.log('Entry number:', entryNumber, 'Date:', journalDate);
 
     // #region agent log
-    dbgLog('transcriptionController.js:pre-supabase', 'Before Supabase upload', { bucket, filename }, 'H3');
+    dbgLog('transcriptionController.js:pre-supabase', 'Before Supabase upload', { bucket, filename, entryNumber, journalDate }, 'H3');
     // #endregion
+    
+    // Upload directly to bucket root (not in audio/ subfolder to avoid double path)
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from(bucket)
-      .upload(`audio/${filename}`, req.file.buffer, {
+      .upload(filename, req.file.buffer, {
         contentType: req.file.mimetype || 'audio/mpeg',
         upsert: false,
       });
@@ -69,8 +125,9 @@ exports.transcribeAudio = async (req, res) => {
     // #endregion
     console.log('Audio uploaded successfully:', filename);
 
-    const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(`audio/${filename}`);
-    const publicUrl = publicUrlData.publicUrl;
+    // Return just the filename (not full URL) - frontend will construct the URL
+    // This allows for better handling of public vs private buckets
+    const local_path = filename;
 
     // Check if OpenAI API key is configured
     if (!process.env.OPEN_AI_KEY) {
@@ -135,7 +192,7 @@ exports.transcribeAudio = async (req, res) => {
       status: 'success',
       data: {
         transcript: transcriptText,
-        local_path: publicUrl,
+        local_path: local_path,
         file_size: req.file.size,
         language,
         confidence,
