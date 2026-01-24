@@ -71,22 +71,29 @@ module.exports = async (req, res) => {
     return res.status(204).end();
   }
   
-  // Vercel passes the path segments after /api/journal-ease
-  // For /api/journal-ease/users/4/entries, req.url will be /users/4/entries
-  // For /api/journal-ease/transcribe, req.url will be /transcribe
-  let requestPath = req.url || '/';
+  // Vercel's catch-all routing behavior:
+  // - For /api/journal-ease/transcribe, req.url might be "/transcribe" or "/api/journal-ease/transcribe"
+  // - For /api/journal-ease/users/4/entries, req.url might be "/users/4/entries" or "/api/journal-ease/users/4/entries"
+  // We need to handle both cases
+  let requestPath = req.url || req.path || '/';
   
   // #region agent log
-  dbgLog('api-catchall:path-reconstruction', 'Reconstructing path', { originalUrl: req.url, originalPath: req.path, requestPath, isUsersRoute: requestPath.includes('/users/') }, 'H1,H2');
+  dbgLog('api-catchall:path-reconstruction', 'Reconstructing path', { 
+    originalUrl: req.url, 
+    originalPath: req.path, 
+    requestPath,
+    isUsersRoute: requestPath.includes('/users/'),
+    startsWithApi: requestPath.startsWith('/api/journal-ease')
+  }, 'H1,H2');
   // #endregion
   
   // Reconstruct full path for Express
-  // Handle both direct paths and paths that already include /api/journal-ease
+  // Handle both cases: paths with and without /api/journal-ease prefix
   if (!requestPath.startsWith('/api/journal-ease')) {
     if (!requestPath.startsWith('/')) {
       requestPath = '/' + requestPath;
     }
-    // Always prepend /api/journal-ease to make full path
+    // Prepend /api/journal-ease to make full path
     requestPath = '/api/journal-ease' + requestPath;
   }
   
