@@ -3,9 +3,16 @@ const FormData = require('form-data');
 const supabase = require('../services/supabaseClient');
 const { v4: uuidv4 } = require('uuid');
 
+// #region agent log
+const dbgLog = (loc, msg, data, hyp) => console.log('[DEBUG]', JSON.stringify({ location: loc, message: msg, data, hypothesisId: hyp, timestamp: Date.now(), sessionId: 'debug-session' }));
+// #endregion
+
 // Upload to Supabase storage and proxy transcription to OpenAI
 exports.transcribeAudio = async (req, res) => {
   try {
+    // #region agent log
+    dbgLog('transcriptionController.js:entry', 'Transcribe handler entered', { hasFile: !!req.file, hasUser: !!req.user }, 'H1');
+    // #endregion
     console.log('🎙️ Transcription request started');
     console.log('Environment check:', {
       hasOpenAIKey: !!process.env.OPEN_AI_KEY,
@@ -15,6 +22,9 @@ exports.transcribeAudio = async (req, res) => {
     });
 
     if (!req.file) {
+      // #region agent log
+      dbgLog('transcriptionController.js:no-file', 'No req.file', {}, 'H2');
+      // #endregion
       return res.status(400).json({ status: 'fail', message: 'Audio file is required' });
     }
 
@@ -32,6 +42,9 @@ exports.transcribeAudio = async (req, res) => {
 
     console.log('Uploading to Supabase bucket:', bucket);
 
+    // #region agent log
+    dbgLog('transcriptionController.js:pre-supabase', 'Before Supabase upload', { bucket, filename }, 'H3');
+    // #endregion
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from(bucket)
       .upload(`audio/${filename}`, req.file.buffer, {
@@ -40,6 +53,9 @@ exports.transcribeAudio = async (req, res) => {
       });
 
     if (uploadError) {
+      // #region agent log
+      dbgLog('transcriptionController.js:supabase-fail', 'Supabase upload failed', { error: uploadError.message }, 'H3');
+      // #endregion
       console.error('Supabase upload error:', uploadError);
       return res.status(500).json({
         status: 'error',
@@ -48,6 +64,9 @@ exports.transcribeAudio = async (req, res) => {
       });
     }
 
+    // #region agent log
+    dbgLog('transcriptionController.js:supabase-ok', 'Supabase upload OK', { filename }, 'H3');
+    // #endregion
     console.log('Audio uploaded successfully:', filename);
 
     const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(`audio/${filename}`);
@@ -82,6 +101,10 @@ exports.transcribeAudio = async (req, res) => {
       });
     }
 
+    // #region agent log
+    dbgLog('transcriptionController.js:pre-openai', 'Before OpenAI Whisper call', { hasApiKey: !!apiKey }, 'H4');
+    // #endregion
+
     // Send to OpenAI Whisper
     const formData = new FormData();
     formData.append('file', req.file.buffer, {
@@ -99,6 +122,9 @@ exports.transcribeAudio = async (req, res) => {
       maxBodyLength: Infinity,
     });
 
+    // #region agent log
+    dbgLog('transcriptionController.js:openai-ok', 'OpenAI response received', { hasText: !!response?.data?.text }, 'H4');
+    // #endregion
     console.log('OpenAI response received');
 
     const transcriptText = response.data.text;
@@ -116,6 +142,9 @@ exports.transcribeAudio = async (req, res) => {
       },
     });
   } catch (err) {
+    // #region agent log
+    dbgLog('transcriptionController.js:catch', 'Transcribe error', { message: err.message, status: err.response?.status, code: err.code, hasResponse: !!err.response }, 'H1,H3,H4');
+    // #endregion
     console.error('Transcription error:', err.message);
     console.error('Error stack:', err.stack);
 

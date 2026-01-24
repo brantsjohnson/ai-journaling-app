@@ -5,6 +5,13 @@ import { useScript } from "./ScriptContext";
 import { useAuth } from "../contexts/AuthContext";
 import { API_BASE } from "../config/api";
 
+// #region agent log
+const DEBUG_INGEST = 'http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45';
+const dbg = (payload) => {
+  fetch(DEBUG_INGEST, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }) }).catch(() => {});
+};
+// #endregion
+
 //bitRate option is set to 128, which means the audio recorder will use a bit rate of 128 kbps (kilobits per second) when encoding the recorded audio into an MP3 file.
 //Bit rate refers to the number of bits (binary digits) that are processed or transmitted per unit of time. In the context of audio recording, the bit rate determines the quality and size of the recorded audio file.
 
@@ -370,6 +377,11 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
           formData.append("journal_date", journalDate);
         }
 
+        const fullUrl = `${API_BASE}/transcribe`;
+        // #region agent log
+        dbg({ location: 'Audio.jsx:pre-send', message: 'About to POST /transcribe', data: { fullUrl, hasToken: !!token, fileSize: file.size, fileType: file.type, journalDate: journalDate || null, contentTypeExplicit: true }, hypothesisId: 'H2,H5' });
+        // #endregion
+
         // Show transcribing loader
         setIsTranscribing(true);
         setTranscriptionError(null);
@@ -377,7 +389,7 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
         // Send to backend proxy endpoint (which will call OpenAI)
         axios({
           method: "post",
-          url: `${API_BASE}/transcribe`,
+          url: fullUrl,
           data: formData,
           headers: {
             "Content-Type": "multipart/form-data",
@@ -389,6 +401,10 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
             const local_path = response.data.data.local_path;
             const language = response.data.data.language;
             const confidence = response.data.data.confidence;
+
+            // #region agent log
+            dbg({ location: 'Audio.jsx:success', message: 'Transcribe succeeded', data: { status: response.status, hasTranscript: !!transcript, localPath: !!local_path }, hypothesisId: 'H4' });
+            // #endregion
             
             console.log("Transcript:", transcript);
             console.log("Audio saved at:", local_path);
@@ -434,6 +450,12 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
             setIsTranscribing(false);
           })
           .catch((error) => {
+            const status = error.response?.status;
+            const msg = error.response?.data?.message ?? null;
+            const errBody = error.response?.data?.error ?? null;
+            // #region agent log
+            dbg({ location: 'Audio.jsx:catch', message: 'Transcribe request failed', data: { status, message: msg, error: errBody, code: error.code }, hypothesisId: 'H1,H2,H3,H4' });
+            // #endregion
             console.error("Transcription error:", error);
             setIsTranscribing(false);
             setTranscriptionError({

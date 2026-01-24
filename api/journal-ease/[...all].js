@@ -1,5 +1,6 @@
 // Catch-all route for all API endpoints
-const app = require('../../../backend/app');
+// From api/journal-ease/: ../ = api/, ../../ = project root. ../../../ goes above root (broken on Vercel).
+const app = require('../../backend/app');
 
 // Helper function to set CORS headers
 function setCorsHeaders(res, origin) {
@@ -54,7 +55,8 @@ module.exports = async (req, res) => {
   }
   
   console.log('📍 Final path for Express:', requestPath);
-  
+  console.log('[DEBUG]', JSON.stringify({ location: 'api-catchall:pre-express', message: 'About to call Express app', data: { method: req.method, path: requestPath, isTranscribe: requestPath.includes('/transcribe') }, hypothesisId: 'H1', timestamp: Date.now(), sessionId: 'debug-session' }));
+
   // Update request for Express
   req.url = requestPath;
   req.originalUrl = requestPath;
@@ -67,6 +69,7 @@ module.exports = async (req, res) => {
     return app(req, res);
   } catch (error) {
     console.error('❌ Error in Express app:', error);
+    console.log('[DEBUG]', JSON.stringify({ location: 'api-catchall:express-threw', message: 'Express app threw', data: { errorMessage: error?.message, stack: error?.stack?.slice(0, 200) }, hypothesisId: 'H1', timestamp: Date.now(), sessionId: 'debug-session' }));
     if (!res.headersSent) {
       setCorsHeaders(res, origin);
       res.status(500).json({
