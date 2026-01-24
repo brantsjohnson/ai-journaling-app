@@ -57,7 +57,23 @@ app.use(express.json());
 
 // Add request logging middleware for debugging
 app.use((req, res, next) => {
+  // #region agent log
+  const dbgLog = (loc, msg, data, hyp) => console.log('[DEBUG]', JSON.stringify({ location: loc, message: msg, data, hypothesisId: hyp, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }));
+  dbgLog('app.js:request-middleware', 'Request received', { 
+    method: req.method, 
+    url: req.url, 
+    originalUrl: req.originalUrl,
+    path: req.path,
+    isEntries: req.url?.includes('/entries') || req.path?.includes('/entries'),
+    isUsers: req.url?.includes('/users/') || req.path?.includes('/users/'),
+    headers: Object.keys(req.headers),
+    hasAuth: !!req.headers.authorization
+  }, 'H6');
+  // #endregion
   console.log(`[Express] ${req.method} ${req.url}`);
+  console.log(`[Express] Original URL: ${req.originalUrl}`);
+  console.log(`[Express] Path: ${req.path}`);
+  console.log(`[Express] Is entries route? ${req.url?.includes('/entries') || req.path?.includes('/entries')}`);
   next();
 });
 
@@ -69,13 +85,32 @@ app.use('/api/journal-ease/auth', authRouter);
 app.use('/api/journal-ease', transcriptionRouter);
 
 // Protected routes - require authentication
+// #region agent log
+const dbgLog = (loc, msg, data, hyp) => console.log('[DEBUG]', JSON.stringify({ location: loc, message: msg, data, hypothesisId: hyp, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }));
+dbgLog('app.js:mount-routes', 'Mounting protected routes', { 
+  entryRouter: 'entryRouter',
+  userRouter: 'userRouter', 
+  transcriptRouter: 'transcriptRouter' 
+}, 'H6');
+// #endregion
 app.use('/api/journal-ease', entryRouter);
 app.use('/api/journal-ease', userRouter);
 app.use('/api/journal-ease', transcriptRouter);
 
 // 404 handler for unmatched routes
 app.use((req, res) => {
+  // #region agent log
+  dbgLog('app.js:404-handler', '404 - Route not found', { 
+    method: req.method, 
+    url: req.url, 
+    originalUrl: req.originalUrl,
+    path: req.path,
+    matchedRoutes: 'none'
+  }, 'H6');
+  // #endregion
   console.log(`[404] ${req.method} ${req.url} - Route not found`);
+  console.log(`[404] Original URL: ${req.originalUrl}`);
+  console.log(`[404] Path: ${req.path}`);
   res.status(404).json({
     status: 'fail',
     message: `Route ${req.method} ${req.url} not found`,

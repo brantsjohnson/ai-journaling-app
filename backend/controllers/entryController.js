@@ -351,11 +351,35 @@ exports.deleteEntry = async (req, res) => {
 exports.createEntry = async (req, res) => {
   // #region agent log
   const dbgLog = (loc, msg, data, hyp) => console.log('[DEBUG]', JSON.stringify({ location: loc, message: msg, data, hypothesisId: hyp, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }));
-  dbgLog('entryController.js:createEntry:entry', 'CreateEntry handler entered', { hasUser: !!req.user, hasBody: !!req.body, bodyKeys: req.body ? Object.keys(req.body) : [] }, 'H6');
+  dbgLog('entryController.js:createEntry:entry', 'CreateEntry handler entered', { 
+    method: req.method, 
+    url: req.url, 
+    originalUrl: req.originalUrl,
+    hasUser: !!req.user, 
+    userType: req.user ? (req.user.supabaseUser ? 'supabase' : 'jwt') : 'none',
+    hasBody: !!req.body, 
+    bodyKeys: req.body ? Object.keys(req.body) : [],
+    body: req.body,
+    headers: Object.keys(req.headers),
+    hasAuth: !!req.headers.authorization
+  }, 'H6');
+  console.log('[DEBUG] CreateEntry: ENTRY', { method: req.method, url: req.url, hasUser: !!req.user, reqUser: req.user, body: req.body });
   // #endregion
   
   let userId;
   const { transcript, duration_ms, local_path, journal_date } = req.body;
+  
+  // #region agent log
+  dbgLog('entryController.js:createEntry:body-extracted', 'Body extracted', { 
+    hasTranscript: !!transcript, 
+    transcriptLength: transcript?.length,
+    duration_ms, 
+    hasLocalPath: !!local_path, 
+    local_path, 
+    journal_date 
+  }, 'H6');
+  console.log('[DEBUG] CreateEntry: Body extracted', { transcript: transcript?.substring(0, 50), duration_ms, local_path, journal_date });
+  // #endregion
 
   try {
     // ALWAYS use the authenticated user's ID from the token, not from URL params
@@ -404,7 +428,22 @@ exports.createEntry = async (req, res) => {
     const journalDate = journal_date || new Date().toISOString().split('T')[0];
     
     // #region agent log
-    dbgLog('entryController.js:createEntry:pre-insert', 'Before DB insert', { userId, journalDate, hasTranscript: !!transcript, hasLocalPath: !!local_path }, 'H6');
+    dbgLog('entryController.js:createEntry:pre-insert', 'Before DB insert', { 
+      userId, 
+      journalDate, 
+      hasTranscript: !!transcript, 
+      transcriptLength: transcript?.length,
+      hasLocalPath: !!local_path, 
+      local_path,
+      duration_ms,
+      insertParams: [userId, transcript || null, duration_ms || null, local_path || null, journalDate]
+    }, 'H6');
+    console.log('[DEBUG] CreateEntry: Before INSERT', { userId, journalDate, transcript: transcript?.substring(0, 50), local_path, duration_ms });
+    // #endregion
+    
+    // #region agent log
+    dbgLog('entryController.js:createEntry:db-query-start', 'DB query starting', { userId, journalDate }, 'H6');
+    console.log('[DEBUG] CreateEntry: DB query START');
     // #endregion
     
     const { rows } = await db.query(
@@ -413,10 +452,27 @@ exports.createEntry = async (req, res) => {
        RETURNING id, user_id, transcript, created_at, updated_at, duration_ms, local_path, transcript_id, journal_date, drive_sync_enabled, sync_status, last_sync_error`,
       [userId, transcript || null, duration_ms || null, local_path || null, journalDate]
     );
+    
+    // #region agent log
+    dbgLog('entryController.js:createEntry:db-query-complete', 'DB query complete', { 
+      rowCount: rows?.length, 
+      hasEntry: !!rows[0],
+      entryId: rows[0]?.id 
+    }, 'H6');
+    console.log('[DEBUG] CreateEntry: DB query COMPLETE', { rowCount: rows?.length, entry: rows[0] });
+    // #endregion
+    
     const entry = rows[0];
     
     // #region agent log
-    dbgLog('entryController.js:createEntry:insert-success', 'Entry created', { entryId: entry?.id }, 'H6');
+    dbgLog('entryController.js:createEntry:insert-success', 'Entry created successfully', { 
+      entryId: entry?.id, 
+      userId: entry?.user_id,
+      journalDate: entry?.journal_date,
+      hasLocalPath: !!entry?.local_path,
+      entryKeys: entry ? Object.keys(entry) : []
+    }, 'H6');
+    console.log('[DEBUG] CreateEntry: Entry created', entry);
     // #endregion
 
     // TODO: Implement Google Drive sync when ready
@@ -426,7 +482,17 @@ exports.createEntry = async (req, res) => {
     //   });
     // }
 
+    // #region agent log
+    dbgLog('entryController.js:createEntry:pre-response', 'About to send response', { entryId: entry?.id, status: 201 }, 'H6');
+    console.log('[DEBUG] CreateEntry: Sending 201 response', { entry });
+    // #endregion
+
     res.status(201).json({ status: 'success', data: { entry } });
+    
+    // #region agent log
+    dbgLog('entryController.js:createEntry:response-sent', 'Response sent', { entryId: entry?.id }, 'H6');
+    console.log('[DEBUG] CreateEntry: Response SENT');
+    // #endregion
   } catch (err) {
     // #region agent log
     dbgLog('entryController.js:createEntry:catch', 'CreateEntry error', { errorMessage: err.message, errorCode: err.code }, 'H6');

@@ -120,31 +120,58 @@ const EntryList = ({ showRecordingControls = false }) => {
     }, [userId]);
 
     const handleCreateEntry = async(e) => {
+        // #region agent log
+        dbg({ location: 'EntryList.jsx:handleCreateEntry:entry', message: 'handleCreateEntry called', data: { hasUserId: !!userId, hasToken: !!token, hasScript: !!script, scriptLength: script?.length, hasRecordingData: !!recordingData, journalDate }, hypothesisId: 'H6' });
+        console.log('[DEBUG] EntryList: handleCreateEntry START', { userId, hasToken: !!token, scriptLength: script?.length, recordingData, journalDate });
+        // #endregion
+        
         e.preventDefault();
+        
+        // #region agent log
+        dbg({ location: 'EntryList.jsx:handleCreateEntry:pre-auth-check', message: 'Before auth check', data: { userId, hasToken: !!token }, hypothesisId: 'H6' });
+        console.log('[DEBUG] EntryList: Auth check', { userId, hasToken: !!token });
+        // #endregion
+        
         if (!userId || !token) {
+            // #region agent log
+            dbg({ location: 'EntryList.jsx:handleCreateEntry:auth-fail', message: 'Auth check failed', data: { userId, hasToken: !!token }, hypothesisId: 'H6' });
+            // #endregion
             alert('User not authenticated. Please try logging in again.');
             return;
         }
 
+        // #region agent log
+        dbg({ location: 'EntryList.jsx:handleCreateEntry:pre-script-check', message: 'Before script check', data: { hasScript: !!script, scriptLength: script?.length, scriptTrimmed: script?.trim()?.length }, hypothesisId: 'H6' });
+        console.log('[DEBUG] EntryList: Script check', { hasScript: !!script, scriptLength: script?.length });
+        // #endregion
+        
         if (!script || script.trim() === '') {
+            // #region agent log
+            dbg({ location: 'EntryList.jsx:handleCreateEntry:script-fail', message: 'Script check failed', data: { hasScript: !!script, scriptLength: script?.length }, hypothesisId: 'H6' });
+            // #endregion
             alert('Please record a journal entry first');
             return;
         }
 
         // Pass userId as-is (can be UUID or numeric). Backend will use JWT token to identify user.
         const saveUrl = API_BASE + '/users/' + userId + '/entries';
+        const savePayload = {
+            transcript: script,
+            duration_ms: recordingData.duration_ms,
+            local_path: recordingData.local_path,
+            journal_date: journalDate,
+            transcript_id: null,
+        };
+        
+        // #region agent log
+        dbg({ location: 'EntryList.jsx:handleCreateEntry:pre-axios', message: 'About to POST save entry', data: { url: saveUrl, fullUrl: window.location.origin + saveUrl, hasToken: !!token, tokenLength: token?.length, userId, hasScript: !!script, scriptLength: script?.length, hasLocalPath: !!recordingData.local_path, localPath: recordingData.local_path, payloadKeys: Object.keys(savePayload), payload: savePayload }, hypothesisId: 'H6' });
+        console.log('[DEBUG] EntryList: About to POST', { saveUrl, savePayload, headers: { hasAuth: !!token, contentType: 'application/json' } });
+        // #endregion
         
         try {
-            const savePayload = {
-                transcript: script,
-                duration_ms: recordingData.duration_ms,
-                local_path: recordingData.local_path,
-                journal_date: journalDate,
-                transcript_id: null,
-            };
-            
             // #region agent log
-            dbg({ location: 'EntryList.jsx:pre-save', message: 'About to POST save entry', data: { url: saveUrl, hasToken: !!token, userId, hasScript: !!script, hasLocalPath: !!recordingData.local_path }, hypothesisId: 'H6' });
+            dbg({ location: 'EntryList.jsx:handleCreateEntry:axios-start', message: 'Axios POST started', data: { url: saveUrl, timestamp: Date.now() }, hypothesisId: 'H6' });
+            console.log('[DEBUG] EntryList: Axios POST START', { url: saveUrl, timestamp: Date.now() });
             // #endregion
             
             const response = await axios.post(
@@ -159,10 +186,16 @@ const EntryList = ({ showRecordingControls = false }) => {
             );
             
             // #region agent log
-            dbg({ location: 'EntryList.jsx:save-success', message: 'Save entry succeeded', data: { status: response.status, hasEntry: !!response.data?.data?.entry }, hypothesisId: 'H6' });
+            dbg({ location: 'EntryList.jsx:handleCreateEntry:axios-success', message: 'Axios POST succeeded', data: { status: response.status, statusText: response.statusText, hasData: !!response.data, hasEntry: !!response.data?.data?.entry, entryId: response.data?.data?.entry?.id, responseKeys: response.data ? Object.keys(response.data) : [] }, hypothesisId: 'H6' });
+            console.log('[DEBUG] EntryList: Axios POST SUCCESS', { status: response.status, data: response.data });
             // #endregion
             
             const newEntryData = response.data.data.entry;
+            
+            // #region agent log
+            dbg({ location: 'EntryList.jsx:handleCreateEntry:entry-received', message: 'Entry data received', data: { entryId: newEntryData?.id, hasEntry: !!newEntryData, entryKeys: newEntryData ? Object.keys(newEntryData) : [] }, hypothesisId: 'H6' });
+            console.log('[DEBUG] EntryList: Entry received', newEntryData);
+            // #endregion
 
             // Save transcript to transcripts table if we have a transcript
             // Note: The backend automatically updates the entry with transcript_id, so no need for additional calls
@@ -209,13 +242,37 @@ const EntryList = ({ showRecordingControls = false }) => {
         } catch (error) {
             const status = error.response?.status;
             const msg = error.response?.data?.message ?? null;
+            const errorData = error.response?.data ?? null;
+            const errorHeaders = error.response?.headers ?? null;
+            
             // #region agent log
-            dbg({ location: 'EntryList.jsx:save-error', message: 'Save entry failed', data: { status, message: msg, code: error.code, url: API_BASE + '/users/' + userId + '/entries' }, hypothesisId: 'H6' });
+            dbg({ location: 'EntryList.jsx:handleCreateEntry:axios-error', message: 'Axios POST failed', data: { status, statusText: error.response?.statusText, message: msg, code: error.code, name: error.name, url: saveUrl, hasResponse: !!error.response, hasRequest: !!error.request, responseData: errorData, responseHeaders: errorHeaders ? Object.keys(errorHeaders) : [], errorMessage: error.message, errorStack: error.stack?.slice(0, 500) }, hypothesisId: 'H6' });
+            console.error('[DEBUG] EntryList: Axios POST ERROR', { 
+                status, 
+                statusText: error.response?.statusText,
+                message: msg,
+                code: error.code,
+                name: error.name,
+                url: saveUrl,
+                hasResponse: !!error.response,
+                hasRequest: !!error.request,
+                responseData: errorData,
+                responseHeaders: errorHeaders,
+                errorMessage: error.message,
+                fullError: error
+            });
             // #endregion
+            
             console.error('Error creating entry:', error);
             if (error.response?.status === 404 && error.response?.data?.message?.includes('not found in local database')) {
+                // #region agent log
+                dbg({ location: 'EntryList.jsx:handleCreateEntry:user-sync-error', message: 'User sync required', data: { status, message: msg }, hypothesisId: 'H6' });
+                // #endregion
                 alert('Your account needs to be synced. Please contact support.');
             } else {
+                // #region agent log
+                dbg({ location: 'EntryList.jsx:handleCreateEntry:generic-error', message: 'Generic save error', data: { status, message: msg }, hypothesisId: 'H6' });
+                // #endregion
                 alert('Failed to save journal entry. Please try again.');
             }
         }
@@ -638,6 +695,10 @@ const Entry = ({
                     let filePath = entry.local_path;
                     console.log('Original local_path:', filePath);
                     
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:640', message: 'Original local_path from entry', data: { local_path: entry.local_path, entryId: entry.id, entryDate: entry.journal_date }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H2' }) }).catch(() => {});
+                    // #endregion
+                    
                     if (filePath.startsWith('audio/')) {
                         filePath = filePath.replace('audio/', '');
                     }
@@ -649,10 +710,18 @@ const Entry = ({
                     console.log('Cleaned filePath for public URL:', filePath);
                     console.log('Entry ID:', entry.id, 'Entry date:', entry.journal_date);
                     
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:652', message: 'Cleaned filePath before getPublicUrl', data: { cleanedFilePath: filePath, originalPath: entry.local_path }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H4' }) }).catch(() => {});
+                    // #endregion
+                    
                     // Get public URL from Supabase storage (bucket is public)
                     const { data: publicUrlData } = supabase.storage
                         .from('audio')
                         .getPublicUrl(filePath);
+                    
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:658', message: 'getPublicUrl result', data: { filePath, publicUrl: publicUrlData?.publicUrl, hasPublicUrl: !!publicUrlData?.publicUrl, fullData: publicUrlData }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H4' }) }).catch(() => {});
+                    // #endregion
                     
                     if (publicUrlData?.publicUrl) {
                         console.log('Successfully generated public URL for:', filePath);
@@ -664,6 +733,9 @@ const Entry = ({
                         setAudioURL(null);
                     }
                 } catch (err) {
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:667', message: 'Error loading audio', data: { error: err.message, stack: err.stack, local_path: entry.local_path }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H2,H4' }) }).catch(() => {});
+                    // #endregion
                     console.error('Error loading audio:', err);
                     console.error('Error stack:', err.stack);
                     setAudioError('Unable to load audio');
@@ -849,6 +921,9 @@ const Entry = ({
                                         }
                                         setAudioError(errorMsg);
                                         console.error('Audio playback error:', errorMsg, audioURL);
+                                        // #region agent log
+                                        fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:854', message: 'Audio playback error', data: { errorCode: error.code, errorMsg, audioURL, entryId: entry.id, local_path: entry.local_path }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H2,H4' }) }).catch(() => {});
+                                        // #endregion
                                     }
                                 }}
                                 onLoadedMetadata={(e) => {

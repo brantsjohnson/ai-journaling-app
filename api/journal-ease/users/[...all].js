@@ -44,16 +44,28 @@ module.exports = async (req, res) => {
   const dbg = (payload) => {
     fetch(DEBUG_INGEST, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }) }).catch(() => {});
   };
-  dbg({ location: 'users-catchall:entry', message: 'Users catch-all invoked', data: { method: req.method, url: req.url, hasApp: !!app }, hypothesisId: 'H6' });
+  const dbgLog = (loc, msg, data, hyp) => console.log('[DEBUG]', JSON.stringify({ location: loc, message: msg, data, hypothesisId: hyp, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }));
+  
+  dbg({ location: 'users-catchall:entry', message: 'Users catch-all invoked', data: { method: req.method, url: req.url, originalUrl: req.originalUrl, hasApp: !!app, headers: Object.keys(req.headers), hasAuth: !!req.headers.authorization }, hypothesisId: 'H6' });
+  dbgLog('users-catchall:entry', 'Users catch-all invoked', { method: req.method, url: req.url, hasApp: !!app }, 'H6');
   // #endregion
   
   console.log('🚀 Users catch-all function invoked');
   console.log('📍 Method:', req.method);
   console.log('📍 URL:', req.url);
+  console.log('📍 Original URL:', req.originalUrl);
+  console.log('📍 Headers:', JSON.stringify(req.headers, null, 2));
   
   let origin = req.headers.origin || '*';
   
+  // #region agent log
+  dbgLog('users-catchall:pre-options', 'Before OPTIONS check', { method: req.method, origin }, 'H6');
+  // #endregion
+  
   if (req.method === 'OPTIONS') {
+    // #region agent log
+    dbgLog('users-catchall:options', 'Handling OPTIONS', { origin }, 'H6');
+    // #endregion
     setCorsHeaders(res, origin);
     return res.status(204).end();
   }
@@ -61,6 +73,10 @@ module.exports = async (req, res) => {
   // Vercel passes path after /api/journal-ease/users
   // For /api/journal-ease/users/4/entries, req.url will be /4/entries
   let requestPath = req.url || '/';
+  
+  // #region agent log
+  dbgLog('users-catchall:path-reconstruction', 'Reconstructing path', { originalUrl: req.url, requestPath }, 'H6');
+  // #endregion
   
   // Reconstruct full path
   if (!requestPath.startsWith('/api/journal-ease')) {
@@ -71,9 +87,12 @@ module.exports = async (req, res) => {
   }
   
   // #region agent log
-  dbg({ location: 'users-catchall:pre-express', message: 'About to call Express', data: { requestPath, isEntries: requestPath.includes('/entries') }, hypothesisId: 'H6' });
+  dbg({ location: 'users-catchall:pre-express', message: 'About to call Express', data: { requestPath, originalUrl: req.url, isEntries: requestPath.includes('/entries'), isPost: req.method === 'POST', hasApp: !!app }, hypothesisId: 'H6' });
+  dbgLog('users-catchall:pre-express', 'About to call Express', { requestPath, isEntries: requestPath.includes('/entries') }, 'H6');
   // #endregion
   console.log('📍 Final path for Express:', requestPath);
+  console.log('📍 Is entries route?', requestPath.includes('/entries'));
+  console.log('📍 Is POST?', req.method === 'POST');
   
   req.url = requestPath;
   req.originalUrl = requestPath;
@@ -90,6 +109,9 @@ module.exports = async (req, res) => {
       error: appLoadError?.message || 'Unknown error',
       stack: appLoadError?.stack || 'No stack trace',
     };
+    // #region agent log
+    dbgLog('users-catchall:app-not-loaded', 'Backend app not loaded', errorDetails, 'H6');
+    // #endregion
     console.error('[DEBUG] Users catch-all: Backend app not loaded. Details:', JSON.stringify(errorDetails, null, 2));
     if (!res.headersSent) {
       setCorsHeaders(res, origin);
@@ -103,10 +125,22 @@ module.exports = async (req, res) => {
     return;
   }
   
+  // #region agent log
+  dbgLog('users-catchall:call-express', 'Calling Express app', { requestPath, method: req.method }, 'H6');
+  // #endregion
+  
   try {
-    return app(req, res);
+    const result = app(req, res);
+    // #region agent log
+    dbgLog('users-catchall:express-returned', 'Express app returned', { hasResult: !!result, resultType: typeof result }, 'H6');
+    // #endregion
+    return result;
   } catch (error) {
+    // #region agent log
+    dbgLog('users-catchall:express-threw', 'Express app threw', { errorMessage: error?.message, errorStack: error?.stack?.slice(0, 500) }, 'H6');
+    // #endregion
     console.error('❌ Error in Express app:', error);
+    console.error('❌ Error stack:', error.stack);
     if (!res.headersSent) {
       setCorsHeaders(res, origin);
       res.status(500).json({

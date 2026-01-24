@@ -113,6 +113,17 @@ exports.transcribeAudio = async (req, res) => {
         upsert: true, // Allow overwrite if somehow filename still collides (shouldn't happen with timestamp)
       });
 
+    // #region agent log
+    dbgLog('transcriptionController.js:upload-result', 'Upload result', { 
+      hasUploadData: !!uploadData, 
+      uploadPath: uploadData?.path, 
+      uploadKey: uploadData?.id,
+      error: uploadError?.message,
+      filename,
+      bucket
+    }, 'H1,H3,H5');
+    // #endregion
+
     if (uploadError) {
       // #region agent log
       dbgLog('transcriptionController.js:supabase-fail', 'Supabase upload failed', { error: uploadError.message }, 'H3');
@@ -126,9 +137,15 @@ exports.transcribeAudio = async (req, res) => {
     }
 
     // #region agent log
-    dbgLog('transcriptionController.js:supabase-ok', 'Supabase upload OK', { filename }, 'H3');
+    dbgLog('transcriptionController.js:supabase-ok', 'Supabase upload OK', { 
+      filename, 
+      uploadPath: uploadData?.path,
+      uploadFullPath: uploadData?.fullPath,
+      local_path: filename
+    }, 'H1,H3,H5');
     // #endregion
     console.log('Audio uploaded successfully:', filename);
+    console.log('Upload data path:', uploadData?.path);
 
     // Return just the filename (not full URL) - frontend will construct the URL
     // This allows for better handling of public vs private buckets

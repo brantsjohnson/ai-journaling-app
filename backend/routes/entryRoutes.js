@@ -3,13 +3,33 @@ const router = express.Router();
 const entryController = require('./../controllers/entryController');
 const { authenticate } = require('./../middleware/auth');
 
+// #region agent log
+const dbgLog = (loc, msg, data, hyp) => console.log('[DEBUG]', JSON.stringify({ location: loc, message: msg, data, hypothesisId: hyp, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }));
+dbgLog('entryRoutes.js:setup', 'Entry routes setup', { hasAuthenticate: !!authenticate, hasEntryController: !!entryController }, 'H6');
+// #endregion
+
 // All entry routes require authentication
+// #region agent log
+dbgLog('entryRoutes.js:use-auth', 'Applying auth middleware', {}, 'H6');
+// #endregion
 router.use(authenticate);
 
 router
     .route('/users/:userId/entries')
-    .get(entryController.getAllEntries) // Get all entries for a user
-    .post(entryController.createEntry); // Create a new entry for a user
+    .get((req, res, next) => {
+      // #region agent log
+      dbgLog('entryRoutes.js:get-entries-route', 'GET /users/:userId/entries matched', { method: req.method, url: req.url, params: req.params, userId: req.params.userId }, 'H6');
+      console.log('[DEBUG] EntryRoutes: GET /users/:userId/entries matched', req.params);
+      // #endregion
+      entryController.getAllEntries(req, res, next);
+    })
+    .post((req, res, next) => {
+      // #region agent log
+      dbgLog('entryRoutes.js:post-entries-route', 'POST /users/:userId/entries matched', { method: req.method, url: req.url, params: req.params, userId: req.params.userId, hasBody: !!req.body, bodyKeys: req.body ? Object.keys(req.body) : [] }, 'H6');
+      console.log('[DEBUG] EntryRoutes: POST /users/:userId/entries matched', { params: req.params, body: req.body });
+      // #endregion
+      entryController.createEntry(req, res, next);
+    });
 
 router
     .route('/users/:userId/entries/:entryId')
