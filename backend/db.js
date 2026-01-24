@@ -52,6 +52,30 @@ if (!supabaseUrl || !supabaseServiceKey) {
  * refactor code to use Supabase query builder directly.
  */
 async function query(text, params = []) {
+  // #region agent log
+  const DEBUG_INGEST = 'http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45';
+  const dbg = (payload) => {
+    fetch(DEBUG_INGEST, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }) }).catch(() => {});
+  };
+  const dbgLog = (loc, msg, data, hyp) => console.log('[DEBUG]', JSON.stringify({ location: loc, message: msg, data, hypothesisId: hyp, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }));
+  
+  const isInsert = text.trim().toUpperCase().startsWith('INSERT');
+  const isSelect = text.trim().toUpperCase().startsWith('SELECT');
+  const hasTranscript = params.some((p, i) => {
+    const paramName = text.match(new RegExp(`\\$${i + 1}\\b`));
+    return paramName && typeof p === 'string' && p.length > 10; // Likely transcript if long string
+  });
+  
+  dbgLog('db.js:query:entry', 'DB query started', { 
+    isInsert, 
+    isSelect, 
+    hasTranscript,
+    paramCount: params.length,
+    queryPreview: text.substring(0, 100),
+    paramsPreview: params.map(p => typeof p === 'string' ? (p.length > 50 ? p.substring(0, 50) + '...' : p) : p)
+  }, 'H7');
+  // #endregion
+  
   try {
     // Replace parameterized queries ($1, $2, etc.) with actual values
     let sqlQuery = text;
@@ -79,10 +103,28 @@ async function query(text, params = []) {
       sqlQuery = sqlQuery.replace(regex, value);
     }
 
+    // #region agent log
+    if (isInsert && hasTranscript) {
+      dbgLog('db.js:query:pre-exec', 'About to execute INSERT with transcript', { 
+        sqlPreview: sqlQuery.substring(0, 200),
+        transcriptLength: params.find(p => typeof p === 'string' && p.length > 10)?.length
+      }, 'H7');
+    }
+    // #endregion
+
     // Execute raw SQL using Supabase RPC
     const { data, error } = await supabase.rpc('exec_sql', { sql: sqlQuery });
 
     if (error) {
+      // #region agent log
+      dbgLog('db.js:query:error', 'DB query error', { 
+        errorCode: error.code, 
+        errorMessage: error.message,
+        isInsert,
+        hasTranscript
+      }, 'H7');
+      // #endregion
+      
       // Check if the error is because exec_sql doesn't exist
       if (error.code === '42883' || error.message?.includes('function') || error.message?.includes('does not exist')) {
         throw new Error(
@@ -111,11 +153,38 @@ async function query(text, params = []) {
       ? data.row_count
       : (Array.isArray(rows) ? rows.length : (rows ? 1 : 0));
 
+    // #region agent log
+    if (isInsert && hasTranscript) {
+      dbgLog('db.js:query:success', 'INSERT with transcript succeeded', { 
+        rowCount,
+        hasRows: rows.length > 0,
+        entryId: rows[0]?.id,
+        transcriptSaved: !!rows[0]?.transcript,
+        transcriptLength: rows[0]?.transcript?.length
+      }, 'H7');
+    } else {
+      dbgLog('db.js:query:success', 'DB query succeeded', { 
+        rowCount,
+        hasRows: rows.length > 0,
+        isInsert,
+        isSelect
+      }, 'H7');
+    }
+    // #endregion
+
     return {
       rows: Array.isArray(rows) ? rows : (rows ? [rows] : []),
       rowCount: rowCount,
     };
   } catch (err) {
+    // #region agent log
+    dbgLog('db.js:query:catch', 'DB query exception', { 
+      errorMessage: err.message,
+      errorStack: err.stack?.substring(0, 500),
+      isInsert,
+      hasTranscript
+    }, 'H7');
+    // #endregion
     console.error('Query execution error:', err.message);
     console.error('Query:', text);
     console.error('Params:', params);

@@ -73,19 +73,26 @@ module.exports = async (req, res) => {
   
   // Vercel passes the path segments after /api/journal-ease
   // For /api/journal-ease/users/4/entries, req.url will be /users/4/entries
+  // For /api/journal-ease/transcribe, req.url will be /transcribe
   let requestPath = req.url || '/';
   
   // #region agent log
-  dbgLog('api-catchall:path-reconstruction', 'Reconstructing path', { originalUrl: req.url, originalPath: req.path, requestPath }, 'H1,H2');
+  dbgLog('api-catchall:path-reconstruction', 'Reconstructing path', { originalUrl: req.url, originalPath: req.path, requestPath, isUsersRoute: requestPath.includes('/users/') }, 'H1,H2');
   // #endregion
   
   // Reconstruct full path for Express
+  // Handle both direct paths and paths that already include /api/journal-ease
   if (!requestPath.startsWith('/api/journal-ease')) {
     if (!requestPath.startsWith('/')) {
       requestPath = '/' + requestPath;
     }
+    // Always prepend /api/journal-ease to make full path
     requestPath = '/api/journal-ease' + requestPath;
   }
+  
+  // #region agent log
+  dbgLog('api-catchall:path-final', 'Final reconstructed path', { requestPath, originalUrl: req.url, isUsersRoute: requestPath.includes('/users/'), isEntriesRoute: requestPath.includes('/entries') }, 'H1,H2');
+  // #endregion
   
   // #region agent log
   dbg({ location: 'api-catchall:pre-express', message: 'About to call Express app', data: { method: req.method, path: requestPath, originalUrl: req.url, isTranscribe: requestPath.includes('/transcribe'), isUsersRoute: requestPath.includes('/users/'), isEntriesRoute: requestPath.includes('/entries'), willCallExpress: true }, hypothesisId: 'H1,H2' });
