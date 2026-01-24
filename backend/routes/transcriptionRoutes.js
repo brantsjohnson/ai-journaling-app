@@ -22,8 +22,34 @@ const upload = multer({
   },
 });
 
+// Error handler for multer errors (must be before the route handler)
+const handleMulterError = (err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        status: 'error',
+        message: 'File too large. Maximum size is 25MB.',
+        error: err.message
+      });
+    }
+    return res.status(400).json({
+      status: 'error',
+      message: 'File upload error',
+      error: err.message
+    });
+  }
+  if (err) {
+    return res.status(400).json({
+      status: 'error',
+      message: err.message || 'File upload error',
+      error: err.message || 'Invalid file'
+    });
+  }
+  next();
+};
+
 // Transcription route - requires authentication to get user info for file naming
-router.post('/transcribe', authenticate, upload.single('audio'), transcriptionController.transcribeAudio);
+router.post('/transcribe', authenticate, upload.single('audio'), handleMulterError, transcriptionController.transcribeAudio);
 
 module.exports = router;
 
