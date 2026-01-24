@@ -46,8 +46,8 @@ module.exports = async (req, res) => {
   };
   const dbgLog = (loc, msg, data, hyp) => console.log('[DEBUG]', JSON.stringify({ location: loc, message: msg, data, hypothesisId: hyp, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }));
   
-  dbg({ location: 'users-catchall:entry', message: 'Users catch-all invoked', data: { method: req.method, url: req.url, originalUrl: req.originalUrl, hasApp: !!app, headers: Object.keys(req.headers), hasAuth: !!req.headers.authorization }, hypothesisId: 'H6' });
-  dbgLog('users-catchall:entry', 'Users catch-all invoked', { method: req.method, url: req.url, hasApp: !!app }, 'H6');
+  dbg({ location: 'users-catchall:entry', message: 'Users catch-all invoked', data: { method: req.method, url: req.url, originalUrl: req.originalUrl, path: req.path, hasApp: !!app, isEntriesRoute: req.url?.includes('/entries') || req.path?.includes('/entries'), headers: Object.keys(req.headers), hasAuth: !!req.headers.authorization }, hypothesisId: 'H1,H2,H3' });
+  dbgLog('users-catchall:entry', 'Users catch-all invoked', { method: req.method, url: req.url, path: req.path, hasApp: !!app, isEntriesRoute: req.url?.includes('/entries') }, 'H1,H2,H3');
   // #endregion
   
   console.log('🚀 Users catch-all function invoked');
@@ -87,8 +87,8 @@ module.exports = async (req, res) => {
   }
   
   // #region agent log
-  dbg({ location: 'users-catchall:pre-express', message: 'About to call Express', data: { requestPath, originalUrl: req.url, isEntries: requestPath.includes('/entries'), isPost: req.method === 'POST', hasApp: !!app }, hypothesisId: 'H6' });
-  dbgLog('users-catchall:pre-express', 'About to call Express', { requestPath, isEntries: requestPath.includes('/entries') }, 'H6');
+  dbg({ location: 'users-catchall:pre-express', message: 'About to call Express', data: { requestPath, originalUrl: req.url, originalPath: req.path, isEntries: requestPath.includes('/entries'), isPost: req.method === 'POST', hasApp: !!app, pathMatches: requestPath.match(/\/users\/\d+\/entries/) }, hypothesisId: 'H1,H2,H3' });
+  dbgLog('users-catchall:pre-express', 'About to call Express', { requestPath, isEntries: requestPath.includes('/entries'), pathMatches: requestPath.match(/\/users\/\d+\/entries/) }, 'H1,H2,H3');
   // #endregion
   console.log('📍 Final path for Express:', requestPath);
   console.log('📍 Is entries route?', requestPath.includes('/entries'));
@@ -126,18 +126,18 @@ module.exports = async (req, res) => {
   }
   
   // #region agent log
-  dbgLog('users-catchall:call-express', 'Calling Express app', { requestPath, method: req.method }, 'H6');
+  dbgLog('users-catchall:call-express', 'Calling Express app', { requestPath, method: req.method, hasApp: !!app }, 'H1,H2,H3');
   // #endregion
   
   try {
     const result = app(req, res);
     // #region agent log
-    dbgLog('users-catchall:express-returned', 'Express app returned', { hasResult: !!result, resultType: typeof result }, 'H6');
+    dbgLog('users-catchall:express-returned', 'Express app returned', { hasResult: !!result, resultType: typeof result, headersSent: res.headersSent, statusCode: res.statusCode }, 'H1,H2,H3');
     // #endregion
     return result;
   } catch (error) {
     // #region agent log
-    dbgLog('users-catchall:express-threw', 'Express app threw', { errorMessage: error?.message, errorStack: error?.stack?.slice(0, 500) }, 'H6');
+    dbgLog('users-catchall:express-threw', 'Express app threw', { errorMessage: error?.message, errorStack: error?.stack?.slice(0, 500) }, 'H1,H2,H3');
     // #endregion
     console.error('❌ Error in Express app:', error);
     console.error('❌ Error stack:', error.stack);

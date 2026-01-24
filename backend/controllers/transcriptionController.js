@@ -141,15 +141,39 @@ exports.transcribeAudio = async (req, res) => {
       filename, 
       uploadPath: uploadData?.path,
       uploadFullPath: uploadData?.fullPath,
+      uploadId: uploadData?.id,
+      uploadName: uploadData?.name,
+      uploadDataKeys: uploadData ? Object.keys(uploadData) : [],
       local_path: filename
-    }, 'H1,H3,H5');
+    }, 'H1,H3,H5,H6');
     // #endregion
     console.log('Audio uploaded successfully:', filename);
     console.log('Upload data path:', uploadData?.path);
+    console.log('Upload data full path:', uploadData?.fullPath);
+    console.log('Upload data name:', uploadData?.name);
+    console.log('Upload data keys:', uploadData ? Object.keys(uploadData) : 'null');
+    console.log('Upload data full object:', JSON.stringify(uploadData, null, 2));
 
-    // Return just the filename (not full URL) - frontend will construct the URL
-    // This allows for better handling of public vs private buckets
-    const local_path = filename;
+    // IMPORTANT: Use the actual path returned by Supabase, not the filename we passed
+    // Supabase might store files in a different location than expected
+    // The path returned is what we need to use with getPublicUrl()
+    // uploadData.path is the relative path within the bucket (e.g., "filename.mp3" or "audio/filename.mp3")
+    const actualPath = uploadData?.path || filename;
+    console.log('Using actual path for local_path:', actualPath);
+    console.log('This path will be stored in database and used by frontend for getPublicUrl()');
+
+    // Return the actual path from Supabase (not just filename) - frontend will use this with getPublicUrl()
+    const local_path = actualPath;
+    
+    // #region agent log
+    dbgLog('transcriptionController.js:local-path-determined', 'Local path determined for response', {
+      filename,
+      uploadPath: uploadData?.path,
+      actualPath,
+      local_path,
+      willBeStoredInDB: true
+    }, 'H6');
+    // #endregion
 
     // Check if OpenAI API key is configured
     if (!process.env.OPEN_AI_KEY) {

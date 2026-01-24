@@ -688,33 +688,43 @@ const Entry = ({
                 }
                 setAudioURL(fixedUrl);
             } else {
-                // New format: filename only (e.g., "01-24-2026--01--300.mp3")
+                // New format: filename or path from Supabase upload response
                 // Get public URL from Supabase storage
                 try {
-                    // Clean the file path - remove any "audio/" prefix if present
+                    // Use the exact path returned by Supabase upload (stored in local_path)
+                    // This path is what Supabase expects for getPublicUrl()
                     let filePath = entry.local_path;
-                    console.log('Original local_path:', filePath);
+                    console.log('Original local_path from entry:', filePath);
                     
                     // #region agent log
                     fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:640', message: 'Original local_path from entry', data: { local_path: entry.local_path, entryId: entry.id, entryDate: entry.journal_date }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H2' }) }).catch(() => {});
                     // #endregion
                     
-                    if (filePath.startsWith('audio/')) {
-                        filePath = filePath.replace('audio/', '');
-                    }
-                    // Remove any double audio/audio/ paths
-                    filePath = filePath.replace(/audio\/audio\//g, '');
-                    // Remove any leading slashes
+                    // Remove leading slashes only (Supabase path should not have them)
+                    // Keep any subfolder structure that Supabase returned
                     filePath = filePath.replace(/^\/+/, '');
                     
-                    console.log('Cleaned filePath for public URL:', filePath);
+                    console.log('Using filePath for public URL:', filePath);
                     console.log('Entry ID:', entry.id, 'Entry date:', entry.journal_date);
                     
                     // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:652', message: 'Cleaned filePath before getPublicUrl', data: { cleanedFilePath: filePath, originalPath: entry.local_path }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H4' }) }).catch(() => {});
+                    fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:652', message: 'File path before getPublicUrl', data: { filePath, originalPath: entry.local_path }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H4' }) }).catch(() => {});
+                    // #endregion
+                    
+                    // First, verify the file exists by trying to list it
+                    const { data: listData, error: listError } = await supabase.storage
+                        .from('audio')
+                        .list('', { 
+                            limit: 1000,
+                            search: filePath.split('/').pop() // Search by filename only
+                        });
+                    
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:list-check', message: 'File existence check', data: { filePath, listError: listError?.message, filesFound: listData?.length, files: listData?.map(f => f.name) }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H3,H5' }) }).catch(() => {});
                     // #endregion
                     
                     // Get public URL from Supabase storage (bucket is public)
+                    // Use the exact path as returned by Supabase upload
                     const { data: publicUrlData } = supabase.storage
                         .from('audio')
                         .getPublicUrl(filePath);
@@ -726,7 +736,28 @@ const Entry = ({
                     if (publicUrlData?.publicUrl) {
                         console.log('Successfully generated public URL for:', filePath);
                         console.log('Public URL:', publicUrlData.publicUrl);
-                        setAudioURL(publicUrlData.publicUrl);
+                        
+                        // Verify the URL is accessible by making a HEAD request
+                        try {
+                            const headResponse = await fetch(publicUrlData.publicUrl, { method: 'HEAD' });
+                            console.log('URL accessibility check:', { status: headResponse.status, statusText: headResponse.statusText, contentType: headResponse.headers.get('content-type') });
+                            
+                            // #region agent log
+                            fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:url-check', message: 'URL accessibility check', data: { url: publicUrlData.publicUrl, status: headResponse.status, statusText: headResponse.statusText, contentType: headResponse.headers.get('content-type'), ok: headResponse.ok }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H3,H5' }) }).catch(() => {});
+                            // #endregion
+                            
+                            if (!headResponse.ok) {
+                                console.error('URL is not accessible:', headResponse.status, headResponse.statusText);
+                                setAudioError('Audio file not accessible');
+                                setAudioURL(null);
+                            } else {
+                                setAudioURL(publicUrlData.publicUrl);
+                            }
+                        } catch (fetchError) {
+                            console.error('Error checking URL accessibility:', fetchError);
+                            // Still try to set the URL, might work despite the check failing
+                            setAudioURL(publicUrlData.publicUrl);
+                        }
                     } else {
                         console.error('No public URL returned, data:', publicUrlData);
                         setAudioError('Audio file not found');

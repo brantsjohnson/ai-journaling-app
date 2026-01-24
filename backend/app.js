@@ -100,17 +100,23 @@ app.use('/api/journal-ease', transcriptRouter);
 // 404 handler for unmatched routes
 app.use((req, res) => {
   // #region agent log
-  dbgLog('app.js:404-handler', '404 - Route not found', { 
+  const dbgLog2 = (loc, msg, data, hyp) => console.log('[DEBUG]', JSON.stringify({ location: loc, message: msg, data, hypothesisId: hyp, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }));
+  dbgLog2('app.js:404-handler', '404 - Route not found', { 
     method: req.method, 
     url: req.url, 
     originalUrl: req.originalUrl,
     path: req.path,
+    isEntriesRoute: req.url?.includes('/entries') || req.path?.includes('/entries'),
+    isUsersRoute: req.url?.includes('/users/') || req.path?.includes('/users/'),
+    pathMatches: req.path?.match(/\/users\/\d+\/entries/),
     matchedRoutes: 'none'
-  }, 'H6');
+  }, 'H1,H2,H3,H4,H5');
   // #endregion
   console.log(`[404] ${req.method} ${req.url} - Route not found`);
   console.log(`[404] Original URL: ${req.originalUrl}`);
   console.log(`[404] Path: ${req.path}`);
+  console.log(`[404] Is entries route? ${req.url?.includes('/entries') || req.path?.includes('/entries')}`);
+  console.log(`[404] Path matches pattern? ${req.path?.match(/\/users\/\d+\/entries/)}`);
   res.status(404).json({
     status: 'fail',
     message: `Route ${req.method} ${req.url} not found`,

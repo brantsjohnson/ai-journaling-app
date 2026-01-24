@@ -25,8 +25,9 @@ router
     })
     .post((req, res, next) => {
       // #region agent log
-      dbgLog('entryRoutes.js:post-entries-route', 'POST /users/:userId/entries matched', { method: req.method, url: req.url, params: req.params, userId: req.params.userId, hasBody: !!req.body, bodyKeys: req.body ? Object.keys(req.body) : [] }, 'H6');
-      console.log('[DEBUG] EntryRoutes: POST /users/:userId/entries matched', { params: req.params, body: req.body });
+      const dbgLog2 = (loc, msg, data, hyp) => console.log('[DEBUG]', JSON.stringify({ location: loc, message: msg, data, hypothesisId: hyp, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }));
+      dbgLog2('entryRoutes.js:post-entries-route:matched', 'POST /users/:userId/entries ROUTE MATCHED', { method: req.method, url: req.url, originalUrl: req.originalUrl, path: req.path, params: req.params, userId: req.params.userId, hasBody: !!req.body, bodyKeys: req.body ? Object.keys(req.body) : [], hasUser: !!req.user, userType: req.user ? (req.user.supabaseUser ? 'supabase' : 'jwt') : 'none' }, 'H1,H2,H3,H4');
+      console.log('[DEBUG] EntryRoutes: POST /users/:userId/entries matched', { params: req.params, body: req.body, url: req.url, path: req.path });
       // #endregion
       entryController.createEntry(req, res, next);
     });
