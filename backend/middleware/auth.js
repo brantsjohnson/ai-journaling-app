@@ -37,13 +37,24 @@ exports.authenticate = async (req, res, next) => {
       dbgLog('auth.js:authenticate:try-supabase', 'Trying Supabase auth', { tokenLength: token?.length }, 'H6');
       // #endregion
       
+      // Check if supabase client is properly initialized
+      if (!supabase || !supabase.auth) {
+        console.error('[AUTH] Supabase client not initialized properly');
+        console.error('[AUTH] Supabase object:', typeof supabase);
+        throw new Error('Supabase client not available');
+      }
+      
       const { data: { user }, error } = await supabase.auth.getUser(token);
       
       // #region agent log
       dbgLog('auth.js:authenticate:supabase-result', 'Supabase auth result', { hasUser: !!user, hasError: !!error, errorMessage: error?.message, userId: user?.id, userEmail: user?.email }, 'H6');
       // #endregion
       
-      if (!error && user) {
+      if (error) {
+        console.error('[AUTH] Supabase getUser error:', error.message);
+        console.error('[AUTH] Error code:', error.status);
+        // Don't throw - fall through to try custom JWT
+      } else if (user) {
         // This is a Supabase token
         req.user = {
           userId: user.id,
@@ -61,6 +72,7 @@ exports.authenticate = async (req, res, next) => {
       // #region agent log
       dbgLog('auth.js:authenticate:supabase-error', 'Supabase auth error', { errorMessage: supabaseError?.message, errorName: supabaseError?.name }, 'H6');
       // #endregion
+      console.error('[AUTH] Supabase auth exception:', supabaseError.message);
       // Not a Supabase token, try custom JWT
     }
 
