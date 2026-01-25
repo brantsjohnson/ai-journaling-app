@@ -723,6 +723,8 @@ const Entry = ({
                     console.log('  - Original local_path:', entry.local_path);
                     console.log('  - Cleaned filePath:', filePath);
                     console.log('  - Entry ID:', entry.id, 'Entry date:', entry.journal_date);
+                    console.log('  - FilePath length:', filePath.length);
+                    console.log('  - FilePath includes double dashes:', filePath.includes('--'));
                     
                     // #region agent log
                     if (isDevelopment) {
