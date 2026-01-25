@@ -68,10 +68,12 @@ function setCorsHeaders(res, origin) {
 
 // Export as Vercel serverless function handler
 module.exports = async (req, res) => {
-  // #region agent log - Only in development
-  const isDevelopment = process.env.NODE_ENV === 'development' || process.env.VERCEL_ENV === 'development';
+  // #region agent log - Completely disabled in production
+  // These debug calls trigger browser local network popups - NEVER run in production
+  const isDevelopment = process.env.NODE_ENV === 'development' && process.env.VERCEL_ENV !== 'production';
   const DEBUG_INGEST = 'http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45';
   const dbg = (payload) => {
+    // Disabled in production - do nothing
     if (isDevelopment) {
       fetch(DEBUG_INGEST, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }) }).catch(() => {});
     }
