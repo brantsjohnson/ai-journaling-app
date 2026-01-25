@@ -68,6 +68,15 @@ function setCorsHeaders(res, origin) {
 
 // Export as Vercel serverless function handler
 module.exports = async (req, res) => {
+  // ALWAYS log - this is critical for debugging routing
+  console.log('🚀🚀🚀 CATCH-ALL FUNCTION INVOKED 🚀🚀🚀');
+  console.log('📍 Method:', req.method);
+  console.log('📍 URL:', req.url);
+  console.log('📍 Path:', req.path);
+  console.log('📍 Original URL:', req.originalUrl);
+  console.log('📍 Query:', req.query);
+  console.log('📍 Headers:', Object.keys(req.headers));
+  
   // #region agent log - Completely disabled in production
   // These debug calls trigger browser local network popups - NEVER run in production
   const isDevelopment = process.env.NODE_ENV === 'development' && process.env.VERCEL_ENV !== 'production';
@@ -89,10 +98,6 @@ module.exports = async (req, res) => {
     dbgLog('api-catchall:entry', 'Main catch-all invoked', { method: req.method, url: req.url, isUsersRoute: req.url?.includes('/users/'), isEntriesRoute: req.url?.includes('/entries') }, 'H1,H2');
   }
   // #endregion
-  
-  console.log('🚀 Catch-all function invoked');
-  console.log('📍 Method:', req.method);
-  console.log('📍 URL:', req.url);
   
   // Extract origin
   let origin = req.headers.origin || '*';
