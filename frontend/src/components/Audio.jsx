@@ -21,8 +21,9 @@ const dbg = (payload) => {
 //Bit rate refers to the number of bits (binary digits) that are processed or transmitted per unit of time. In the context of audio recording, the bit rate determines the quality and size of the recorded audio file.
 
 // Initialize recorder
+// Bitrate set to 56 kbps to support 60-minute recordings (~25MB) while staying within OpenAI's 25MB limit
 const recorder = new MicRecorder({ 
-  bitRate: 128,
+  bitRate: 56,
   encoder: 'mp3',
 });
 

@@ -15,7 +15,7 @@
   "functions": {
     "api/journal-ease/[...all].js": {
       "includeFiles": "backend/**",
-      "maxDuration": 30
+      "maxDuration": 800
     }
   }
 }

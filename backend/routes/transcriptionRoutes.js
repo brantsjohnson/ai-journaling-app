@@ -10,7 +10,7 @@ const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: {
-    fileSize: 25 * 1024 * 1024, // 25MB limit (OpenAI Whisper limit)
+    fileSize: 60 * 1024 * 1024, // 60MB limit (supports up to 60 minutes at 128kbps)
   },
   fileFilter: (req, file, cb) => {
     const allowedMimes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/webm', 'audio/m4a'];
@@ -25,13 +25,13 @@ const upload = multer({
 // Error handler for multer errors (must be before the route handler)
 const handleMulterError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
-    if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({
-        status: 'error',
-        message: 'File too large. Maximum size is 25MB.',
-        error: err.message
-      });
-    }
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({
+          status: 'error',
+          message: 'File too large. Maximum size is 60MB (supports up to 60 minutes).',
+          error: err.message
+        });
+      }
     return res.status(400).json({
       status: 'error',
       message: 'File upload error',

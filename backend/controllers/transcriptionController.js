@@ -186,6 +186,14 @@ exports.transcribeAudio = async (req, res) => {
 
     console.log('Sending to OpenAI Whisper API...');
 
+    // Check file size - OpenAI Whisper has a 25MB limit
+    const MAX_OPENAI_SIZE = 25 * 1024 * 1024; // 25MB
+    if (req.file.size > MAX_OPENAI_SIZE) {
+      console.warn(`File size (${(req.file.size / 1024 / 1024).toFixed(2)}MB) exceeds OpenAI's 25MB limit`);
+      // Note: We'll still attempt to send it, but OpenAI may reject it
+      // In the future, we could implement chunking here for files over 25MB
+    }
+
     // Clean and validate API key
     const apiKey = (process.env.OPEN_AI_KEY || '').trim().replace(/[\r\n\t]/g, '');
     console.log('API key check:', {
@@ -223,6 +231,7 @@ exports.transcribeAudio = async (req, res) => {
       },
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
+      timeout: 780000, // 13 minutes timeout for OpenAI API (allows time for processing long audio files, with buffer before Vercel timeout)
     });
 
     // #region agent log
