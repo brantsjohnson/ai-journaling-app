@@ -413,24 +413,17 @@ const EntryList = ({ showRecordingControls = false }) => {
                             />
                         </div>
 
-                        {/* Combined Preview */}
-                        {(script || manualText) && (
+                        {/* Transcript Preview - Only show transcript, not combined */}
+                        {script && (
                             <div className="mb-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                                 <div className="flex items-center justify-between mb-2">
-                                    <label className="text-sm font-semibold text-stone-300 font-sans">Combined Preview</label>
+                                    <label className="text-sm font-semibold text-stone-300 font-sans">Transcript Preview</label>
                                     <div className="flex items-center gap-2">
-                                        {script && (
-                                            <span className="text-xs text-brand-orange bg-brand-orange/10 px-2 py-1 rounded-full font-sans border border-brand-orange/20">Audio</span>
-                                        )}
-                                        {manualText && (
-                                            <span className="text-xs text-blue-400 bg-blue-400/10 px-2 py-1 rounded-full font-sans border border-blue-400/20">Text</span>
-                                        )}
+                                        <span className="text-xs text-brand-orange bg-brand-orange/10 px-2 py-1 rounded-full font-sans border border-brand-orange/20">Auto-generated</span>
                                         <button
                                             onClick={() => {
-                                                if (window.confirm('Are you sure you want to clear everything? This will delete both the audio transcript and your text.')) {
+                                                if (window.confirm('Are you sure you want to delete this transcript?')) {
                                                     setScript('');
-                                                    setManualText('');
-                                                    localStorage.removeItem('journal_manual_text');
                                                     // Also clear audio state from localStorage
                                                     localStorage.removeItem('audio_blob_url');
                                                     localStorage.removeItem('audio_file');
@@ -440,7 +433,7 @@ const EntryList = ({ showRecordingControls = false }) => {
                                                 }
                                             }}
                                             className="text-red-400 hover:text-red-300 p-1.5 rounded hover:bg-red-500/10 transition-colors"
-                                            title="Clear all"
+                                            title="Delete transcript"
                                         >
                                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
@@ -451,7 +444,7 @@ const EntryList = ({ showRecordingControls = false }) => {
                                 </div>
                                 <div className="p-3 bg-black/20 border border-white/10 rounded-lg shadow-inner max-h-40 overflow-y-auto scrollbar-thin scrollbar-thumb-stone-600 scrollbar-track-transparent">
                                     <p className="text-sm text-stone-300 leading-relaxed whitespace-pre-wrap font-sans">
-                                        {[script, manualText].filter(t => t && t.trim() !== '').join('\n\n')}
+                                        {script}
                                     </p>
                                 </div>
                             </div>
