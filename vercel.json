@@ -4,6 +4,10 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/api/journal-ease/(.*)",
+      "destination": "/api/journal-ease/[...all]"
+    },
+    {
       "source": "/((?!api).*)",
       "destination": "/index.html"
     }
