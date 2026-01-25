@@ -734,48 +734,39 @@ const Entry = ({
                     }
                     // #endregion
                     
-                    // Get public URL from Supabase storage (bucket is public)
-                    // Use the exact path as returned by Supabase upload
-                    const { data: publicUrlData } = supabase.storage
+                    // For private buckets, use createSignedUrl instead of getPublicUrl
+                    // Signed URLs work with RLS policies and authenticated users
+                    // The Supabase client should have the user's session token
+                    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
                         .from('audio')
-                        .getPublicUrl(filePath);
+                        .createSignedUrl(filePath, 3600); // URL valid for 1 hour
                     
                     // #region agent log
                     if (isDevelopment) {
-                      fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:658', message: 'getPublicUrl result', data: { filePath, publicUrl: publicUrlData?.publicUrl, hasPublicUrl: !!publicUrlData?.publicUrl, fullData: publicUrlData }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H4' }) }).catch(() => {});
+                      fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:658', message: 'createSignedUrl result', data: { filePath, signedUrl: signedUrlData?.signedUrl, hasSignedUrl: !!signedUrlData?.signedUrl, error: signedUrlError?.message, fullData: signedUrlData }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H4' }) }).catch(() => {});
                     }
                     // #endregion
                     
-                    if (publicUrlData?.publicUrl) {
-                        console.log('Successfully generated public URL for:', filePath);
-                        console.log('Public URL:', publicUrlData.publicUrl);
-                        
-                        // Verify the URL is accessible by making a HEAD request
-                        try {
-                            const headResponse = await fetch(publicUrlData.publicUrl, { method: 'HEAD' });
-                            console.log('URL accessibility check:', { status: headResponse.status, statusText: headResponse.statusText, contentType: headResponse.headers.get('content-type') });
-                            
-                            // #region agent log
-                            if (isDevelopment) {
-                              fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:url-check', message: 'URL accessibility check', data: { url: publicUrlData.publicUrl, status: headResponse.status, statusText: headResponse.statusText, contentType: headResponse.headers.get('content-type'), ok: headResponse.ok }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H3,H5' }) }).catch(() => {});
-                            }
-                            // #endregion
-                            
-                            if (!headResponse.ok) {
-                                console.error('URL is not accessible:', headResponse.status, headResponse.statusText);
-                                setAudioError('Audio file not accessible');
-                                setAudioURL(null);
-                            } else {
-                                setAudioURL(publicUrlData.publicUrl);
-                            }
-                        } catch (fetchError) {
-                            console.error('Error checking URL accessibility:', fetchError);
-                            // Still try to set the URL, might work despite the check failing
+                    if (signedUrlError) {
+                        console.error('Error creating signed URL:', signedUrlError);
+                        // Fallback: try public URL in case bucket is actually public
+                        const { data: publicUrlData } = supabase.storage
+                            .from('audio')
+                            .getPublicUrl(filePath);
+                        if (publicUrlData?.publicUrl) {
+                            console.log('Using public URL as fallback:', publicUrlData.publicUrl);
                             setAudioURL(publicUrlData.publicUrl);
+                        } else {
+                            setAudioError('Failed to generate audio URL: ' + signedUrlError.message);
+                            setAudioURL(null);
                         }
+                    } else if (signedUrlData?.signedUrl) {
+                        console.log('Successfully generated signed URL for:', filePath);
+                        console.log('Signed URL:', signedUrlData.signedUrl);
+                        setAudioURL(signedUrlData.signedUrl);
                     } else {
-                        console.error('No public URL returned, data:', publicUrlData);
-                        setAudioError('Audio file not found');
+                        console.error('Failed to generate signed URL for:', filePath);
+                        setAudioError('Failed to generate audio URL');
                         setAudioURL(null);
                     }
                 } catch (err) {
