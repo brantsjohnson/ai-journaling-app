@@ -47,6 +47,14 @@ const EntryList = ({ showRecordingControls = false }) => {
     const {script, setScript} = useScript();
     const [journalDate, setJournalDate] = useState(getLocalDateString());
     const [recordingData, setRecordingData] = useState({ duration_ms: null, local_path: null });
+    const [manualText, setManualText] = useState(() => {
+        try {
+            const stored = localStorage.getItem('journal_manual_text');
+            return stored || '';
+        } catch (err) {
+            return '';
+        }
+    });
     const [expandedDays, setExpandedDays] = useState(new Set()); // Track which days are expanded
     const [editingEntryId, setEditingEntryId] = useState(null); // Track which entry's date is being edited
     const [editJournalDate, setEditJournalDate] = useState("");
@@ -146,15 +154,17 @@ const EntryList = ({ showRecordingControls = false }) => {
         }
 
         // #region agent log
-        dbg({ location: 'EntryList.jsx:handleCreateEntry:pre-script-check', message: 'Before script check', data: { hasScript: !!script, scriptLength: script?.length, scriptTrimmed: script?.trim()?.length }, hypothesisId: 'H6' });
-        console.log('[DEBUG] EntryList: Script check', { hasScript: !!script, scriptLength: script?.length });
+        dbg({ location: 'EntryList.jsx:handleCreateEntry:pre-content-check', message: 'Before content check', data: { hasScript: !!script, scriptLength: script?.length, hasManualText: !!manualText, manualTextLength: manualText?.length }, hypothesisId: 'H6' });
+        console.log('[DEBUG] EntryList: Content check', { hasScript: !!script, scriptLength: script?.length, hasManualText: !!manualText, manualTextLength: manualText?.length });
         // #endregion
         
-        if (!script || script.trim() === '') {
+        // Check if we have either script (audio transcript) or manual text
+        const hasContent = (script && script.trim() !== '') || (manualText && manualText.trim() !== '');
+        if (!hasContent) {
             // #region agent log
-            dbg({ location: 'EntryList.jsx:handleCreateEntry:script-fail', message: 'Script check failed', data: { hasScript: !!script, scriptLength: script?.length }, hypothesisId: 'H6' });
+            dbg({ location: 'EntryList.jsx:handleCreateEntry:content-fail', message: 'Content check failed', data: { hasScript: !!script, hasManualText: !!manualText }, hypothesisId: 'H6' });
             // #endregion
-            alert('Please record a journal entry first');
+            alert('Please record an audio entry or add some text first');
             return;
         }
 
@@ -202,15 +212,20 @@ const EntryList = ({ showRecordingControls = false }) => {
             console.log('[DEBUG] EntryList: Entry received', newEntryData);
             // #endregion
 
-            // Save transcript to transcripts table if we have a transcript
+            // Combine script (audio transcript) and manual text
+            const combinedTranscript = [script, manualText]
+                .filter(t => t && t.trim() !== '')
+                .join('\n\n');
+
+            // Save transcript to transcripts table if we have a transcript (audio, text, or both)
             // Note: The backend automatically updates the entry with transcript_id, so no need for additional calls
-            if (script && script.trim() !== '' && newEntryData.id) {
+            if (combinedTranscript.trim() !== '' && newEntryData.id) {
                 try {
                     await axios.post(
                         API_BASE + '/transcripts',
                         {
                             recording_id: newEntryData.id,
-                            text: script,
+                            text: combinedTranscript,
                             language: null, // Can be added later if needed
                             confidence: null, // Can be added later if needed
                         },
@@ -239,6 +254,8 @@ const EntryList = ({ showRecordingControls = false }) => {
 
             // Reset form
             setScript("");
+            setManualText("");
+            localStorage.removeItem('journal_manual_text');
             setJournalDate(getLocalDateString());
             setRecordingData({ duration_ms: null, local_path: null });
 
@@ -380,16 +397,40 @@ const EntryList = ({ showRecordingControls = false }) => {
                             <Audio onRecordingComplete={handleRecordingComplete} showTimer={true} journalDate={journalDate} />
                         </div>
 
-                        {script && (
+                        {/* Manual Text Input */}
+                        <div className="mb-4">
+                            <label className="text-sm font-semibold text-stone-300 font-sans mb-2 block">Add Text (optional)</label>
+                            <textarea
+                                value={manualText}
+                                onChange={(e) => {
+                                    const value = e.target.value;
+                                    setManualText(value);
+                                    localStorage.setItem('journal_manual_text', value);
+                                }}
+                                placeholder="Type or paste your text here... It will be combined with your audio transcript."
+                                className="w-full p-3 bg-black/20 border border-white/10 rounded-lg text-sm text-stone-300 placeholder-stone-500 font-sans resize-y min-h-[100px] focus:outline-none focus:border-brand-orange/50 transition-colors"
+                                rows={4}
+                            />
+                        </div>
+
+                        {/* Combined Preview */}
+                        {(script || manualText) && (
                             <div className="mb-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                                 <div className="flex items-center justify-between mb-2">
-                                    <label className="text-sm font-semibold text-stone-300 font-sans">Transcript Preview</label>
+                                    <label className="text-sm font-semibold text-stone-300 font-sans">Combined Preview</label>
                                     <div className="flex items-center gap-2">
-                                        <span className="text-xs text-brand-orange bg-brand-orange/10 px-2 py-1 rounded-full font-sans border border-brand-orange/20">Auto-generated</span>
+                                        {script && (
+                                            <span className="text-xs text-brand-orange bg-brand-orange/10 px-2 py-1 rounded-full font-sans border border-brand-orange/20">Audio</span>
+                                        )}
+                                        {manualText && (
+                                            <span className="text-xs text-blue-400 bg-blue-400/10 px-2 py-1 rounded-full font-sans border border-blue-400/20">Text</span>
+                                        )}
                                         <button
                                             onClick={() => {
-                                                if (window.confirm('Are you sure you want to delete this transcript? You can record a new entry.')) {
+                                                if (window.confirm('Are you sure you want to clear everything? This will delete both the audio transcript and your text.')) {
                                                     setScript('');
+                                                    setManualText('');
+                                                    localStorage.removeItem('journal_manual_text');
                                                     // Also clear audio state from localStorage
                                                     localStorage.removeItem('audio_blob_url');
                                                     localStorage.removeItem('audio_file');
@@ -399,7 +440,7 @@ const EntryList = ({ showRecordingControls = false }) => {
                                                 }
                                             }}
                                             className="text-red-400 hover:text-red-300 p-1.5 rounded hover:bg-red-500/10 transition-colors"
-                                            title="Delete transcript"
+                                            title="Clear all"
                                         >
                                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                                 <polyline points="3 6 5 6 21 6"></polyline>
@@ -409,7 +450,9 @@ const EntryList = ({ showRecordingControls = false }) => {
                                     </div>
                                 </div>
                                 <div className="p-3 bg-black/20 border border-white/10 rounded-lg shadow-inner max-h-40 overflow-y-auto scrollbar-thin scrollbar-thumb-stone-600 scrollbar-track-transparent">
-                                    <p className="text-sm text-stone-300 leading-relaxed whitespace-pre-wrap font-sans">{script}</p>
+                                    <p className="text-sm text-stone-300 leading-relaxed whitespace-pre-wrap font-sans">
+                                        {[script, manualText].filter(t => t && t.trim() !== '').join('\n\n')}
+                                    </p>
                                 </div>
                             </div>
                         )}
@@ -417,13 +460,14 @@ const EntryList = ({ showRecordingControls = false }) => {
                         <div className="flex justify-end pt-1">
                             <button
                                 onClick={() => {
-                                    if (script && script.trim() !== '') {
+                                    const combinedText = [script, manualText].filter(t => t && t.trim() !== '').join('\n\n');
+                                    if (combinedText.trim() !== '') {
                                         handleCreateEntry({ preventDefault: () => {} });
                                     } else {
-                                        alert('Please record a journal entry first');
+                                        alert('Please record an audio entry or add some text first');
                                     }
                                 }}
-                                disabled={!script || script.trim() === ''}
+                                disabled={(!script || script.trim() === '') && (!manualText || manualText.trim() === '')}
                                 className="flex items-center gap-2 px-6 py-2 bg-gradient-to-r from-brand-orange to-brand-red text-white rounded-lg font-bold font-sans uppercase text-sm tracking-wide hover:shadow-lg hover:shadow-brand-orange/20 active:transform active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:shadow-none"
                             >
                                 <span>Save Entry</span>
@@ -555,7 +599,7 @@ const EntryList = ({ showRecordingControls = false }) => {
                             </button>
                             <button 
                                 onClick={handleCreateEntry}
-                                disabled={!script || script.trim() === ''}
+                                disabled={(!script || script.trim() === '') && (!manualText || manualText.trim() === '')}
                                 className="px-6 py-2.5 bg-gradient-to-r from-brand-orange to-brand-red text-white font-bold rounded-lg hover:shadow-lg hover:shadow-brand-orange/20 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-sans uppercase tracking-wide"
                             >
                                 Save Journal Entry
