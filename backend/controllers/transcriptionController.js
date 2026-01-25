@@ -132,7 +132,8 @@ exports.transcribeAudio = async (req, res) => {
       return res.status(500).json({
         status: 'error',
         message: 'Failed to upload audio to storage',
-        error: uploadError.message
+        error: uploadError.message,
+        audio_saved: false
       });
     }
 
@@ -207,8 +208,9 @@ exports.transcribeAudio = async (req, res) => {
       console.error('Invalid or missing API key!');
       return res.status(500).json({
         status: 'error',
-        message: 'OpenAI API key configuration error',
-        error: 'API key is invalid or not set'
+        message: 'OpenAI API key is missing or invalid. Please set OPEN_AI_KEY in Vercel environment variables.',
+        error: 'API key is invalid or not set',
+        audio_saved: true // Audio was uploaded successfully
       });
     }
 
@@ -267,10 +269,25 @@ exports.transcribeAudio = async (req, res) => {
         authPrefix: err.config?.headers?.Authorization?.substring(0, 15)
       });
 
+      // Determine if audio was saved before the error
+      const audioSaved = !!uploadData?.path;
+      
+      let errorMessage = 'OpenAI transcription failed';
+      if (err.response.status === 401) {
+        errorMessage = 'OpenAI API key is invalid or expired. Please check your API key in Vercel environment variables.';
+      } else if (err.response.status === 429) {
+        errorMessage = 'OpenAI rate limit exceeded. Please check your account billing or try again later.';
+      } else if (err.response.status === 413) {
+        errorMessage = 'Audio file is too large. Maximum size is 25MB.';
+      } else {
+        errorMessage = err.response.data?.error?.message || err.response.statusText || errorMessage;
+      }
+      
       return res.status(500).json({
         status: 'error',
-        message: 'OpenAI transcription failed',
+        message: errorMessage,
         error: err.response.data?.error?.message || err.response.statusText,
+        audio_saved: audioSaved,
         details: process.env.NODE_ENV === 'production' ? undefined : {
           status: err.response.status,
           data: err.response.data
@@ -283,8 +300,9 @@ exports.transcribeAudio = async (req, res) => {
 
     res.status(500).json({
       status: 'error',
-      message: 'Transcription failed',
+      message: err.message || 'Transcription failed due to an unexpected error',
       error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',
+      audio_saved: false, // Can't determine if audio was saved in this error path
     });
   }
 };
