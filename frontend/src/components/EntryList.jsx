@@ -711,6 +711,14 @@ const Entry = ({
                     // Keep any subfolder structure that Supabase returned
                     filePath = filePath.replace(/^\/+/, '').replace(/^audio\//, '');
                     
+                    // If it's a full URL, extract just the filename
+                    if (filePath.includes('supabase.co/storage')) {
+                        const urlMatch = filePath.match(/\/([^\/]+\.mp3)/);
+                        if (urlMatch) {
+                            filePath = urlMatch[1];
+                        }
+                    }
+                    
                     console.log('🔍 Audio File Path Debug:');
                     console.log('  - Original local_path:', entry.local_path);
                     console.log('  - Cleaned filePath:', filePath);
@@ -726,7 +734,7 @@ const Entry = ({
                     // Signed URLs work with RLS policies and authenticated users
                     // The Supabase client should have the user's session token
                     console.log('🔐 Creating signed URL for path:', filePath);
-                    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+                    let { data: signedUrlData, error: signedUrlError } = await supabase.storage
                         .from('audio')
                         .createSignedUrl(filePath, 3600); // URL valid for 1 hour
                     
@@ -736,6 +744,45 @@ const Entry = ({
                         hasError: !!signedUrlError,
                         errorMessage: signedUrlError?.message
                     });
+                    
+                    // If file not found, try to find it by listing files and matching by filename
+                    if (signedUrlError && signedUrlError.message?.includes('not found')) {
+                        console.log('🔍 File not found, searching for matching file...');
+                        const filename = filePath.split('/').pop(); // Get just the filename
+                        const { data: listData } = await supabase.storage
+                            .from('audio')
+                            .list('', { limit: 1000 });
+                        
+                        if (listData) {
+                            // Try exact match first
+                            const exactMatch = listData.find(f => f.name === filename);
+                            if (exactMatch) {
+                                console.log('✅ Found exact match:', exactMatch.name);
+                                filePath = exactMatch.name;
+                                // Retry with exact path
+                                const retry = await supabase.storage
+                                    .from('audio')
+                                    .createSignedUrl(filePath, 3600);
+                                signedUrlData = retry.data;
+                                signedUrlError = retry.error;
+                            } else {
+                                // Try partial match (filename might be truncated in storage)
+                                const partialMatch = listData.find(f => f.name.startsWith(filename.split('--')[0]));
+                                if (partialMatch) {
+                                    console.log('✅ Found partial match:', partialMatch.name);
+                                    filePath = partialMatch.name;
+                                    // Retry with matched path
+                                    const retry = await supabase.storage
+                                        .from('audio')
+                                        .createSignedUrl(filePath, 3600);
+                                    signedUrlData = retry.data;
+                                    signedUrlError = retry.error;
+                                } else {
+                                    console.log('❌ No matching file found. Available files:', listData.slice(0, 10).map(f => f.name));
+                                }
+                            }
+                        }
+                    }
                     
                     // #region agent log
                     if (isDevelopment) {
