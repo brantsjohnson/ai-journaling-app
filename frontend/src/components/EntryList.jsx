@@ -707,39 +707,35 @@ const Entry = ({
                     }
                     // #endregion
                     
-                    // Remove leading slashes only (Supabase path should not have them)
+                    // Remove leading slashes and any bucket prefix (Supabase path should not have them)
                     // Keep any subfolder structure that Supabase returned
-                    filePath = filePath.replace(/^\/+/, '');
+                    filePath = filePath.replace(/^\/+/, '').replace(/^audio\//, '');
                     
-                    console.log('Using filePath for public URL:', filePath);
-                    console.log('Entry ID:', entry.id, 'Entry date:', entry.journal_date);
-                    
-                    // #region agent log
-                    if (isDevelopment) {
-                      fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:652', message: 'File path before getPublicUrl', data: { filePath, originalPath: entry.local_path }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H4' }) }).catch(() => {});
-                    }
-                    // #endregion
-                    
-                    // First, verify the file exists by trying to list it
-                    const { data: listData, error: listError } = await supabase.storage
-                        .from('audio')
-                        .list('', { 
-                            limit: 1000,
-                            search: filePath.split('/').pop() // Search by filename only
-                        });
+                    console.log('🔍 Audio File Path Debug:');
+                    console.log('  - Original local_path:', entry.local_path);
+                    console.log('  - Cleaned filePath:', filePath);
+                    console.log('  - Entry ID:', entry.id, 'Entry date:', entry.journal_date);
                     
                     // #region agent log
                     if (isDevelopment) {
-                      fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:list-check', message: 'File existence check', data: { filePath, listError: listError?.message, filesFound: listData?.length, files: listData?.map(f => f.name) }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H3,H5' }) }).catch(() => {});
+                      fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:652', message: 'File path before createSignedUrl', data: { filePath, originalPath: entry.local_path }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H4' }) }).catch(() => {});
                     }
                     // #endregion
                     
                     // For private buckets, use createSignedUrl instead of getPublicUrl
                     // Signed URLs work with RLS policies and authenticated users
                     // The Supabase client should have the user's session token
+                    console.log('🔐 Creating signed URL for path:', filePath);
                     const { data: signedUrlData, error: signedUrlError } = await supabase.storage
                         .from('audio')
                         .createSignedUrl(filePath, 3600); // URL valid for 1 hour
+                    
+                    console.log('🔐 Signed URL result:', {
+                        hasData: !!signedUrlData,
+                        hasSignedUrl: !!signedUrlData?.signedUrl,
+                        hasError: !!signedUrlError,
+                        errorMessage: signedUrlError?.message
+                    });
                     
                     // #region agent log
                     if (isDevelopment) {
@@ -748,24 +744,37 @@ const Entry = ({
                     // #endregion
                     
                     if (signedUrlError) {
-                        console.error('Error creating signed URL:', signedUrlError);
-                        // Fallback: try public URL in case bucket is actually public
-                        const { data: publicUrlData } = supabase.storage
-                            .from('audio')
-                            .getPublicUrl(filePath);
-                        if (publicUrlData?.publicUrl) {
-                            console.log('Using public URL as fallback:', publicUrlData.publicUrl);
-                            setAudioURL(publicUrlData.publicUrl);
-                        } else {
-                            setAudioError('Failed to generate audio URL: ' + signedUrlError.message);
-                            setAudioURL(null);
+                        console.error('❌ Error creating signed URL:', signedUrlError);
+                        console.error('   Error details:', {
+                            message: signedUrlError.message,
+                            status: signedUrlError.statusCode,
+                            filePath: filePath,
+                            originalPath: entry.local_path
+                        });
+                        
+                        // If "Object not found", the path is wrong - try to find the correct path
+                        if (signedUrlError.message?.includes('not found') || signedUrlError.message?.includes('Object not found')) {
+                            console.warn('⚠️ File not found at path:', filePath);
+                            console.warn('   This usually means the path in the database doesn\'t match what\'s in Supabase Storage');
+                            console.warn('   Check Supabase Storage UI to see the actual file path');
+                            
+                            // Try listing files to see what's actually there
+                            const { data: listData } = await supabase.storage
+                                .from('audio')
+                                .list('', { limit: 100 });
+                            console.log('📁 Files in audio bucket:', listData?.map(f => f.name).slice(0, 10));
                         }
+                        
+                        setAudioError('Audio file not found: ' + signedUrlError.message);
+                        setAudioURL(null);
                     } else if (signedUrlData?.signedUrl) {
-                        console.log('Successfully generated signed URL for:', filePath);
-                        console.log('Signed URL:', signedUrlData.signedUrl);
+                        console.log('✅ Successfully generated signed URL');
+                        console.log('   File path:', filePath);
+                        console.log('   Signed URL (first 100 chars):', signedUrlData.signedUrl.substring(0, 100) + '...');
+                        // The signedUrl already includes ?token=... - use it directly
                         setAudioURL(signedUrlData.signedUrl);
                     } else {
-                        console.error('Failed to generate signed URL for:', filePath);
+                        console.error('❌ No signed URL returned (unexpected)');
                         setAudioError('Failed to generate audio URL');
                         setAudioURL(null);
                     }
