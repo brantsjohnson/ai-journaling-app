@@ -21,17 +21,61 @@ exports.transcribeAudio = async (req, res) => {
       isVercel: !!process.env.VERCEL
     });
 
-    if (!req.file) {
+    // Support both file upload (req.file) and file_path (file already in Supabase)
+    let fileBuffer = null;
+    let fileMimetype = 'audio/mpeg';
+    let originalFilename = 'audio.mp3';
+    let fileSize = 0;
+    let filePath = null;
+
+    if (req.body && req.body.file_path) {
+      // File already uploaded to Supabase - download it
+      filePath = req.body.file_path;
+      const bucket = (process.env.SUPABASE_AUDIO_BUCKET || 'audio').trim();
+      
+      console.log('Downloading file from Supabase:', { bucket, filePath });
+      
+      const { data: fileData, error: downloadError } = await supabase.storage
+        .from(bucket)
+        .download(filePath);
+
+      if (downloadError || !fileData) {
+        console.error('Error downloading from Supabase:', downloadError);
+        return res.status(400).json({ 
+          status: 'error', 
+          message: 'Failed to download file from storage',
+          error: downloadError?.message 
+        });
+      }
+
+      // Convert blob to buffer
+      fileBuffer = Buffer.from(await fileData.arrayBuffer());
+      fileSize = fileBuffer.length;
+      originalFilename = filePath.split('/').pop() || 'audio.mp3';
+      fileMimetype = 'audio/mpeg'; // Default, could be determined from extension
+      
+      console.log('File downloaded from Supabase:', {
+        filename: originalFilename,
+        size: fileSize
+      });
+    } else if (req.file) {
+      // File uploaded via multer (backward compatibility)
+      fileBuffer = req.file.buffer;
+      fileMimetype = req.file.mimetype;
+      originalFilename = req.file.originalname;
+      fileSize = req.file.size;
+    } else {
       // #region agent log
-      dbgLog('transcriptionController.js:no-file', 'No req.file', {}, 'H2');
+      dbgLog('transcriptionController.js:no-file', 'No req.file or file_path', {}, 'H2');
       // #endregion
-      return res.status(400).json({ status: 'fail', message: 'Audio file is required' });
+      return res.status(400).json({ status: 'fail', message: 'Audio file is required (either upload file or provide file_path)' });
     }
 
     console.log('Transcription request received:', {
-      filename: req.file.originalname,
-      mimetype: req.file.mimetype,
-      size: req.file.size
+      filename: originalFilename,
+      mimetype: fileMimetype,
+      size: fileSize,
+      source: req.body?.file_path ? 'Supabase' : 'upload'
     });
 
     // Get user ID from request (for authenticated requests)
@@ -104,14 +148,36 @@ exports.transcribeAudio = async (req, res) => {
     dbgLog('transcriptionController.js:pre-supabase', 'Before Supabase upload', { bucket, filename, entryNumber, journalDate, uniqueSuffix }, 'H3');
     // #endregion
     
-    // Upload directly to bucket root (not in audio/ subfolder to avoid double path)
-    // Use upsert: true to handle edge case where filename somehow still collides
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from(bucket)
-      .upload(filename, req.file.buffer, {
-        contentType: req.file.mimetype || 'audio/mpeg',
-        upsert: true, // Allow overwrite if somehow filename still collides (shouldn't happen with timestamp)
-      });
+    // If file_path was provided, file is already in Supabase - use that path
+    // Otherwise, upload the file buffer to Supabase
+    let uploadData;
+    if (filePath) {
+      // File already uploaded, use the provided path
+      uploadData = { path: filePath };
+      console.log('Using existing file path:', filePath);
+    } else {
+      // Upload file buffer to Supabase
+      const { data: uploadResult, error: uploadError } = await supabase.storage
+        .from(bucket)
+        .upload(filename, fileBuffer, {
+          contentType: fileMimetype || 'audio/mpeg',
+          upsert: true,
+        });
+
+      if (uploadError) {
+        // #region agent log
+        dbgLog('transcriptionController.js:supabase-fail', 'Supabase upload failed', { error: uploadError.message }, 'H3');
+        // #endregion
+        console.error('Supabase upload error:', uploadError);
+        return res.status(500).json({
+          status: 'error',
+          message: 'Failed to upload audio to storage',
+          error: uploadError.message,
+          audio_saved: false
+        });
+      }
+      uploadData = uploadResult;
+    }
 
     // #region agent log
     dbgLog('transcriptionController.js:upload-result', 'Upload result', { 
@@ -189,8 +255,8 @@ exports.transcribeAudio = async (req, res) => {
 
     // Check file size - OpenAI Whisper has a 25MB limit
     const MAX_OPENAI_SIZE = 25 * 1024 * 1024; // 25MB
-    if (req.file.size > MAX_OPENAI_SIZE) {
-      console.warn(`File size (${(req.file.size / 1024 / 1024).toFixed(2)}MB) exceeds OpenAI's 25MB limit`);
+    if (fileSize > MAX_OPENAI_SIZE) {
+      console.warn(`File size (${(fileSize / 1024 / 1024).toFixed(2)}MB) exceeds OpenAI's 25MB limit`);
       // Note: We'll still attempt to send it, but OpenAI may reject it
       // In the future, we could implement chunking here for files over 25MB
     }
@@ -220,9 +286,9 @@ exports.transcribeAudio = async (req, res) => {
 
     // Send to OpenAI Whisper
     const formData = new FormData();
-    formData.append('file', req.file.buffer, {
-      filename: req.file.originalname || 'audio.mp3',
-      contentType: req.file.mimetype || 'audio/mpeg',
+    formData.append('file', fileBuffer, {
+      filename: originalFilename || 'audio.mp3',
+      contentType: fileMimetype || 'audio/mpeg',
     });
     formData.append('model', 'whisper-1');
 
@@ -259,7 +325,7 @@ exports.transcribeAudio = async (req, res) => {
       data: {
         transcript: transcriptText,
         local_path: local_path,
-        file_size: req.file.size,
+        file_size: fileSize,
         language,
         confidence,
       },

@@ -48,8 +48,21 @@ const handleMulterError = (err, req, res, next) => {
   next();
 };
 
-// Transcription route - requires authentication to get user info for file naming
-router.post('/transcribe', authenticate, upload.single('audio'), handleMulterError, transcriptionController.transcribeAudio);
+// Transcription route - supports both file upload and file_path
+// If file_path is in body, skip multer (file already uploaded to Supabase)
+router.post('/transcribe', authenticate, (req, res, next) => {
+  // If file_path is provided, skip multer (file already in Supabase)
+  if (req.body && req.body.file_path) {
+    return next();
+  }
+  // Otherwise, use multer to handle file upload
+  upload.single('audio')(req, res, (err) => {
+    if (err) {
+      return handleMulterError(err, req, res, next);
+    }
+    next();
+  });
+}, transcriptionController.transcribeAudio);
 
 module.exports = router;
 

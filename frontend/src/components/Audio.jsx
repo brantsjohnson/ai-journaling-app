@@ -4,6 +4,7 @@ import axios from "axios";
 import { useScript } from "./ScriptContext";
 import { useAuth } from "../contexts/AuthContext";
 import { API_BASE } from "../config/api";
+import { supabase } from "../config/supabase";
 
 // #region agent log - Only in development
 // Disable ALL debug calls in production - they trigger browser local network popups
@@ -456,38 +457,58 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
           console.error('Error saving audio to localStorage:', err);
         }
 
-        // Use the file directly for upload (no need to convert back and forth)
-        const audioFileForUpload = file;
-
-        // Create FormData to send to backend
-        const formData = new FormData();
-        formData.append("audio", audioFileForUpload);
-        if (journalDate) {
-          formData.append("journal_date", journalDate);
-        }
-        // Include duration for filename generation
-        formData.append("duration_ms", recordingDuration.toString());
-
-        const fullUrl = `${API_BASE}/transcribe`;
-        // #region agent log
-        dbg({ location: 'Audio.jsx:pre-send', message: 'About to POST /transcribe', data: { fullUrl, hasToken: !!token, fileSize: file.size, fileType: file.type, journalDate: journalDate || null, contentTypeExplicit: true }, hypothesisId: 'H2,H5' });
-        // #endregion
-
-        // Show transcribing loader
+        // Upload directly to Supabase first (bypasses Vercel's 4.5MB limit)
         setIsTranscribing(true);
         setTranscriptionError(null);
 
-        // Send to backend proxy endpoint (which will call OpenAI)
-        axios({
-          method: "post",
-          url: fullUrl,
-          data: formData,
-          headers: {
-            "Content-Type": "multipart/form-data",
-            "Authorization": `Bearer ${token}`,
-          },
-        })
-          .then(async (response) => {
+        try {
+          // Generate filename
+          const dateParts = (journalDate || new Date().toISOString().split('T')[0]).split('-');
+          const formattedDate = `${dateParts[1]}-${dateParts[2]}-${dateParts[0]}`;
+          const durationSeconds = Math.round(recordingDuration / 1000);
+          const uniqueSuffix = Date.now().toString().slice(-6);
+          const filename = `${formattedDate}--01--${durationSeconds}--${uniqueSuffix}.mp3`;
+          
+          const bucket = 'audio'; // Use your bucket name
+          
+          console.log('Uploading to Supabase:', { bucket, filename, fileSize: file.size });
+          
+          // Upload to Supabase storage
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from(bucket)
+            .upload(filename, file, {
+              contentType: file.type || 'audio/mpeg',
+              upsert: true,
+            });
+
+          if (uploadError) {
+            throw new Error(`Supabase upload failed: ${uploadError.message}`);
+          }
+
+          const filePath = uploadData.path;
+          console.log('File uploaded to Supabase:', filePath);
+
+          // Now send just the file path to backend for transcription
+          const fullUrl = `${API_BASE}/transcribe`;
+          // #region agent log
+          dbg({ location: 'Audio.jsx:pre-send', message: 'About to POST /transcribe', data: { fullUrl, hasToken: !!token, filePath, fileSize: file.size, journalDate: journalDate || null }, hypothesisId: 'H2,H5' });
+          // #endregion
+
+          // Send file path to backend (not the file itself)
+          axios({
+            method: "post",
+            url: fullUrl,
+            data: {
+              file_path: filePath,
+              journal_date: journalDate,
+              duration_ms: recordingDuration,
+            },
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`,
+            },
+          })
+            .then(async (response) => {
             const transcript = response.data.data.transcript;
             const local_path = response.data.data.local_path;
             const language = response.data.data.language;
@@ -541,6 +562,23 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
             setIsTranscribing(false);
           })
           .catch((error) => {
+            console.error("Transcription error:", error);
+            setIsTranscribing(false);
+            setTranscriptionError({
+              message: error.response?.data?.message || "Transcription failed. Please try again.",
+              audio_saved: error.response?.data?.audio_saved || false,
+            });
+          });
+        } catch (uploadErr) {
+          console.error("Supabase upload error:", uploadErr);
+          setIsTranscribing(false);
+          setTranscriptionError({
+            message: `Upload failed: ${uploadErr.message}. Please try again.`,
+            audio_saved: false,
+          });
+        }
+      })
+      .catch((error) => {
             const status = error.response?.status;
             const msg = error.response?.data?.message ?? null;
             const errBody = error.response?.data?.error ?? null;
@@ -740,27 +778,48 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
       console.error('Error saving audio to localStorage:', err);
     }
 
-    // Automatically transcribe the uploaded file
-    const formData = new FormData();
-    formData.append("audio", file);
-    if (journalDate) {
-      formData.append("journal_date", journalDate);
-    }
-    // Estimate duration if we have it
-    if (duration > 0) {
-      formData.append("duration_ms", duration.toString());
-    }
-
+    // Upload directly to Supabase first (bypasses Vercel's 4.5MB limit)
     setIsTranscribing(true);
     setTranscriptionError(null);
 
     try {
+      // Generate filename
+      const dateParts = (journalDate || new Date().toISOString().split('T')[0]).split('-');
+      const formattedDate = `${dateParts[1]}-${dateParts[2]}-${dateParts[0]}`;
+      const durationSeconds = duration > 0 ? Math.round(duration / 1000) : 0;
+      const uniqueSuffix = Date.now().toString().slice(-6);
+      const filename = `${formattedDate}--01--${durationSeconds}--${uniqueSuffix}.${file.name.split('.').pop() || 'mp3'}`;
+      
+      const bucket = 'audio';
+      
+      console.log('Uploading to Supabase:', { bucket, filename, fileSize: file.size });
+      
+      // Upload to Supabase storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from(bucket)
+        .upload(filename, file, {
+          contentType: file.type || 'audio/mpeg',
+          upsert: true,
+        });
+
+      if (uploadError) {
+        throw new Error(`Supabase upload failed: ${uploadError.message}`);
+      }
+
+      const filePath = uploadData.path;
+      console.log('File uploaded to Supabase:', filePath);
+
+      // Now send just the file path to backend for transcription
       const response = await axios({
         method: "post",
         url: `${API_BASE}/transcribe`,
-        data: formData,
+        data: {
+          file_path: filePath,
+          journal_date: journalDate,
+          duration_ms: duration > 0 ? duration : 0,
+        },
         headers: {
-          "Content-Type": "multipart/form-data",
+          "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`,
         },
       });
