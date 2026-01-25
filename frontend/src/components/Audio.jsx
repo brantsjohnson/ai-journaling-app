@@ -143,6 +143,54 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
 
     checkEmergencyRecording();
 
+    // Restore audio state from localStorage on mount
+    const restoreAudioState = () => {
+      try {
+        const storedBlobURL = localStorage.getItem('audio_blob_url');
+        const storedAudioFile = localStorage.getItem('audio_file');
+        const storedDuration = localStorage.getItem('audio_duration');
+        
+        if (storedBlobURL && storedAudioFile) {
+          try {
+            // Restore blob URL
+            setBlobURL(storedBlobURL);
+            
+            // Restore audio file from base64
+            const audioData = JSON.parse(storedAudioFile);
+            fetch(audioData.dataURL)
+              .then(res => res.blob())
+              .then(blob => {
+                const file = new File([blob], audioData.name || "audio.mp3", {
+                  type: audioData.type || "audio/mpeg",
+                  lastModified: audioData.lastModified || Date.now(),
+                });
+                setAudioFile(file);
+                if (storedDuration) {
+                  setDuration(parseInt(storedDuration, 10));
+                }
+                console.log('Audio state restored from localStorage');
+              })
+              .catch(err => {
+                console.error('Error restoring audio file:', err);
+                // Clear invalid data
+                localStorage.removeItem('audio_blob_url');
+                localStorage.removeItem('audio_file');
+                localStorage.removeItem('audio_duration');
+              });
+          } catch (err) {
+            console.error('Error parsing stored audio:', err);
+            localStorage.removeItem('audio_blob_url');
+            localStorage.removeItem('audio_file');
+            localStorage.removeItem('audio_duration');
+          }
+        }
+      } catch (err) {
+        console.error('Error restoring audio state:', err);
+      }
+    };
+
+    restoreAudioState();
+
     // Cleanup on unmount
     return () => {
       if (mediaStream) {
@@ -154,6 +202,20 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
       }
     };
   }, [wakeLock]);
+
+  // Listen for clearAudio event to clear audio when transcript is deleted
+  useEffect(() => {
+    const handleClearAudio = () => {
+      if (blobURL) {
+        URL.revokeObjectURL(blobURL);
+      }
+      setBlobURL('');
+      setAudioFile(null);
+      setDuration(0);
+    };
+    window.addEventListener('clearAudio', handleClearAudio);
+    return () => window.removeEventListener('clearAudio', handleClearAudio);
+  }, [blobURL]);
 
   // Handle recording interruption (page navigation, tab switch, screen lock, etc.)
   useEffect(() => {
@@ -372,6 +434,27 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
         });
 
         setAudioFile(file); // Store the file for later use
+
+        // Persist audio state to localStorage
+        try {
+          localStorage.setItem('audio_blob_url', blobURL);
+          localStorage.setItem('audio_duration', recordingDuration.toString());
+          
+          // Convert file to base64 for storage
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const audioFileData = {
+              name: file.name,
+              type: file.type,
+              lastModified: file.lastModified,
+              dataURL: reader.result,
+            };
+            localStorage.setItem('audio_file', JSON.stringify(audioFileData));
+          };
+          reader.readAsDataURL(file);
+        } catch (err) {
+          console.error('Error saving audio to localStorage:', err);
+        }
 
         // Use the file directly for upload (no need to convert back and forth)
         const audioFileForUpload = file;

@@ -29,7 +29,58 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const restoreSession = async () => {
       try {
-        // First, try to get Supabase session
+        // First, try to restore from localStorage (faster, more persistent)
+        const storedToken = localStorage.getItem('token');
+        const storedUser = localStorage.getItem('user');
+        
+        if (storedToken && storedUser) {
+          try {
+            const userData = JSON.parse(storedUser);
+            // Try to verify token, but don't fail if it's expired - keep user logged in
+            try {
+              const { data: { user } } = await supabase.auth.getUser(storedToken);
+              if (user) {
+                setUser(userData);
+                setToken(storedToken);
+                setLoading(false);
+                // Refresh session in background
+                supabase.auth.getSession().then(({ data: { session } }) => {
+                  if (session) {
+                    setToken(session.access_token);
+                    localStorage.setItem('token', session.access_token);
+                  }
+                });
+                return;
+              }
+            } catch (err) {
+              // Token might be expired, but keep user logged in anyway
+              console.log('Token verification failed, but keeping user logged in');
+            }
+            
+            // Even if token verification fails, keep user logged in from localStorage
+            setUser(userData);
+            setToken(storedToken);
+            setLoading(false);
+            
+            // Try to refresh session in background
+            supabase.auth.getSession().then(({ data: { session } }) => {
+              if (session) {
+                setToken(session.access_token);
+                localStorage.setItem('token', session.access_token);
+                localStorage.setItem('user', JSON.stringify({
+                  id: session.user.id,
+                  email: session.user.email,
+                  name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.email,
+                }));
+              }
+            });
+            return;
+          } catch (err) {
+            console.log('Error parsing stored user, trying Supabase session...');
+          }
+        }
+        
+        // Fallback: try to get Supabase session
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (session && !error) {
@@ -50,29 +101,6 @@ export const AuthProvider = ({ children }) => {
           
           setLoading(false);
           return;
-        }
-        
-        // If no Supabase session, try to restore from localStorage
-        const storedToken = localStorage.getItem('token');
-        const storedUser = localStorage.getItem('user');
-        
-        if (storedToken && storedUser) {
-          try {
-            const userData = JSON.parse(storedUser);
-            // Verify token is still valid by checking Supabase
-            const { data: { user } } = await supabase.auth.getUser(storedToken);
-            
-            if (user) {
-              setUser(userData);
-              setToken(storedToken);
-              setLoading(false);
-              return;
-            }
-          } catch (err) {
-            console.log('Stored session invalid, clearing...');
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-          }
         }
         
         setLoading(false);

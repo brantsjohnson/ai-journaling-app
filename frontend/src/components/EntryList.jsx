@@ -384,7 +384,29 @@ const EntryList = ({ showRecordingControls = false }) => {
                             <div className="mb-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                                 <div className="flex items-center justify-between mb-2">
                                     <label className="text-sm font-semibold text-stone-300 font-sans">Transcript Preview</label>
-                                    <span className="text-xs text-brand-orange bg-brand-orange/10 px-2 py-1 rounded-full font-sans border border-brand-orange/20">Auto-generated</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs text-brand-orange bg-brand-orange/10 px-2 py-1 rounded-full font-sans border border-brand-orange/20">Auto-generated</span>
+                                        <button
+                                            onClick={() => {
+                                                if (window.confirm('Are you sure you want to delete this transcript? You can record a new entry.')) {
+                                                    setScript('');
+                                                    // Also clear audio state from localStorage
+                                                    localStorage.removeItem('audio_blob_url');
+                                                    localStorage.removeItem('audio_file');
+                                                    localStorage.removeItem('audio_duration');
+                                                    // Dispatch custom event to notify Audio component
+                                                    window.dispatchEvent(new CustomEvent('clearAudio'));
+                                                }
+                                            }}
+                                            className="text-red-400 hover:text-red-300 p-1.5 rounded hover:bg-red-500/10 transition-colors"
+                                            title="Delete transcript"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                <polyline points="3 6 5 6 21 6"></polyline>
+                                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
                                 </div>
                                 <div className="p-3 bg-black/20 border border-white/10 rounded-lg shadow-inner max-h-40 overflow-y-auto scrollbar-thin scrollbar-thumb-stone-600 scrollbar-track-transparent">
                                     <p className="text-sm text-stone-300 leading-relaxed whitespace-pre-wrap font-sans">{script}</p>
