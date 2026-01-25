@@ -577,48 +577,14 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
             audio_saved: false,
           });
         }
-      })
-      .catch((error) => {
-            const status = error.response?.status;
-            const msg = error.response?.data?.message ?? null;
-            const errBody = error.response?.data?.error ?? null;
-            const errorDetails = error.response?.data?.details ?? null;
-            // #region agent log
-            dbg({ location: 'Audio.jsx:catch', message: 'Transcribe request failed', data: { status, message: msg, error: errBody, code: error.code }, hypothesisId: 'H1,H2,H3,H4' });
-            // #endregion
-            console.error("Transcription error:", error);
-            setIsTranscribing(false);
-            
-            // Build a more helpful error message
-            let errorMessage = "Transcription failed.";
-            
-            if (msg) {
-              errorMessage = msg;
-            } else if (errBody) {
-              errorMessage = typeof errBody === 'string' ? errBody : `Error: ${JSON.stringify(errBody)}`;
-            } else if (status === 401) {
-              errorMessage = "Authentication failed. Please check your OpenAI API key in Vercel environment variables.";
-            } else if (status === 429) {
-              errorMessage = "Rate limit exceeded. Please check your OpenAI account billing or try again later.";
-            } else if (status === 413 || error.code === 'ECONNABORTED') {
-              errorMessage = "File too large or request timed out. Try a shorter recording.";
-            } else if (status) {
-              errorMessage = `Transcription failed (Status: ${status}). Please try again.`;
-            } else if (error.code === 'ECONNABORTED') {
-              errorMessage = "Request timed out. The audio file may be too long. Please try again.";
-            } else if (error.message) {
-              errorMessage = `Error: ${error.message}`;
-            }
-            
-            setTranscriptionError({
-              message: errorMessage,
-              audio_saved: error.response?.data?.audio_saved || false,
-            });
-          });
 
         setIsRecording(false);
       })
-      .catch((e) => console.error(e));
+      .catch((e) => {
+        console.error("Recording error:", e);
+        setIsRecording(false);
+        setIsTranscribing(false);
+      });
   };
 
   const audioToBase64 = async (audioFile) => {
