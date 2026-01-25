@@ -745,42 +745,43 @@ const Entry = ({
                         errorMessage: signedUrlError?.message
                     });
                     
-                    // If file not found, try to find it by listing files and matching by filename
+                    // If file not found, the path might be wrong or file doesn't exist
+                    // Note: Listing files might fail due to RLS policies, so we'll just use the path as-is
+                    // and show a helpful error message
                     if (signedUrlError && signedUrlError.message?.includes('not found')) {
-                        console.log('🔍 File not found, searching for matching file...');
-                        const filename = filePath.split('/').pop(); // Get just the filename
-                        const { data: listData } = await supabase.storage
-                            .from('audio')
-                            .list('', { limit: 1000 });
+                        console.warn('⚠️ File not found at path:', filePath);
+                        console.warn('   This usually means:');
+                        console.warn('   1. The path in the database doesn\'t match what\'s in Supabase Storage');
+                        console.warn('   2. The file was deleted from Storage but entry still exists in database');
+                        console.warn('   3. The file is in a subfolder (check Supabase Storage UI)');
                         
-                        if (listData) {
-                            // Try exact match first
-                            const exactMatch = listData.find(f => f.name === filename);
-                            if (exactMatch) {
-                                console.log('✅ Found exact match:', exactMatch.name);
-                                filePath = exactMatch.name;
-                                // Retry with exact path
-                                const retry = await supabase.storage
-                                    .from('audio')
-                                    .createSignedUrl(filePath, 3600);
-                                signedUrlData = retry.data;
-                                signedUrlError = retry.error;
-                            } else {
-                                // Try partial match (filename might be truncated in storage)
-                                const partialMatch = listData.find(f => f.name.startsWith(filename.split('--')[0]));
-                                if (partialMatch) {
-                                    console.log('✅ Found partial match:', partialMatch.name);
-                                    filePath = partialMatch.name;
-                                    // Retry with matched path
+                        // Try listing files as a diagnostic (might fail due to RLS)
+                        try {
+                            const { data: listData, error: listError } = await supabase.storage
+                                .from('audio')
+                                .list('', { limit: 100 });
+                            
+                            if (listError) {
+                                console.warn('   Cannot list files (RLS policy may not allow listing):', listError.message);
+                            } else if (listData && listData.length > 0) {
+                                const filename = filePath.split('/').pop();
+                                const exactMatch = listData.find(f => f.name === filename);
+                                if (exactMatch) {
+                                    console.log('✅ Found file with different path, retrying...');
+                                    filePath = exactMatch.name;
                                     const retry = await supabase.storage
                                         .from('audio')
                                         .createSignedUrl(filePath, 3600);
                                     signedUrlData = retry.data;
                                     signedUrlError = retry.error;
                                 } else {
-                                    console.log('❌ No matching file found. Available files:', listData.slice(0, 10).map(f => f.name));
+                                    console.log('📁 Sample files in bucket:', listData.slice(0, 5).map(f => f.name));
                                 }
+                            } else {
+                                console.warn('   No files found in bucket (or listing not permitted)');
                             }
+                        } catch (listErr) {
+                            console.warn('   Error listing files:', listErr.message);
                         }
                     }
                     
