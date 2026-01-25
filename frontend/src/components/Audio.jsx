@@ -656,6 +656,39 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
               }}
             />
           </div>
+          <div className="flex items-center justify-center gap-2">
+            <button
+              onClick={() => {
+                if (audioFile) {
+                  const url = URL.createObjectURL(audioFile);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `recording-${new Date().toISOString().split('T')[0]}.mp3`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                } else if (blobURL) {
+                  fetch(blobURL)
+                    .then(res => res.blob())
+                    .then(blob => {
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `recording-${new Date().toISOString().split('T')[0]}.mp3`;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      URL.revokeObjectURL(url);
+                    });
+                }
+              }}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors font-sans flex items-center gap-2"
+              title="Download audio file"
+            >
+              <span>💾</span> Download Audio
+            </button>
+          </div>
           <p className="text-xs text-stone-500 text-center flex items-center justify-center gap-1 font-sans">
             <span>🎧</span> Use headphones for best results
           </p>
