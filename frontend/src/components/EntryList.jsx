@@ -735,6 +735,20 @@ const Entry = ({
                     // For private buckets, use createSignedUrl instead of getPublicUrl
                     // Signed URLs work with RLS policies and authenticated users
                     // The Supabase client should have the user's session token
+                    
+                    // Verify user session before making storage request
+                    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+                    console.log('🔐 Session check:', {
+                        hasSession: !!session,
+                        hasUser: !!session?.user,
+                        userId: session?.user?.id,
+                        sessionError: sessionError?.message
+                    });
+                    
+                    if (!session) {
+                        console.error('❌ No active session - cannot create signed URL');
+                    }
+                    
                     console.log('🔐 Creating signed URL for path:', filePath);
                     let { data: signedUrlData, error: signedUrlError } = await supabase.storage
                         .from('audio')
