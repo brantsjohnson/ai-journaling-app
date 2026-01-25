@@ -68,15 +68,24 @@ function setCorsHeaders(res, origin) {
 
 // Export as Vercel serverless function handler
 module.exports = async (req, res) => {
-  // #region agent log
+  // #region agent log - Only in development
+  const isDevelopment = process.env.NODE_ENV === 'development' || process.env.VERCEL_ENV === 'development';
   const DEBUG_INGEST = 'http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45';
   const dbg = (payload) => {
-    fetch(DEBUG_INGEST, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }) }).catch(() => {});
+    if (isDevelopment) {
+      fetch(DEBUG_INGEST, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }) }).catch(() => {});
+    }
   };
-  const dbgLog = (loc, msg, data, hyp) => console.log('[DEBUG]', JSON.stringify({ location: loc, message: msg, data, hypothesisId: hyp, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }));
+  const dbgLog = (loc, msg, data, hyp) => {
+    if (isDevelopment) {
+      console.log('[DEBUG]', JSON.stringify({ location: loc, message: msg, data, hypothesisId: hyp, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }));
+    }
+  };
   
-  dbg({ location: 'api-catchall:entry', message: 'Main catch-all invoked', data: { method: req.method, url: req.url, originalUrl: req.originalUrl, path: req.path, isUsersRoute: req.url?.includes('/users/') || req.path?.includes('/users/'), isEntriesRoute: req.url?.includes('/entries') || req.path?.includes('/entries'), headers: Object.keys(req.headers), hasAuth: !!req.headers.authorization }, hypothesisId: 'H1,H2' });
-  dbgLog('api-catchall:entry', 'Main catch-all invoked', { method: req.method, url: req.url, isUsersRoute: req.url?.includes('/users/'), isEntriesRoute: req.url?.includes('/entries') }, 'H1,H2');
+  if (isDevelopment) {
+    dbg({ location: 'api-catchall:entry', message: 'Main catch-all invoked', data: { method: req.method, url: req.url, originalUrl: req.originalUrl, path: req.path, isUsersRoute: req.url?.includes('/users/') || req.path?.includes('/users/'), isEntriesRoute: req.url?.includes('/entries') || req.path?.includes('/entries'), headers: Object.keys(req.headers), hasAuth: !!req.headers.authorization }, hypothesisId: 'H1,H2' });
+    dbgLog('api-catchall:entry', 'Main catch-all invoked', { method: req.method, url: req.url, isUsersRoute: req.url?.includes('/users/'), isEntriesRoute: req.url?.includes('/entries') }, 'H1,H2');
+  }
   // #endregion
   
   console.log('🚀 Catch-all function invoked');

@@ -10,10 +10,13 @@ import { API_BASE } from "../config/api";
 import { useScript } from "./ScriptContext";
 import { supabase } from "../config/supabase";
 
-// #region agent log
+// #region agent log - Only in development
+const isDevelopment = import.meta.env.DEV || import.meta.env.MODE === 'development';
 const DEBUG_INGEST = 'http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45';
 const dbg = (payload) => {
-  fetch(DEBUG_INGEST, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }) }).catch(() => {});
+  if (isDevelopment) {
+    fetch(DEBUG_INGEST, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }) }).catch(() => {});
+  }
 };
 // #endregion
 
@@ -697,7 +700,9 @@ const Entry = ({
                     console.log('Original local_path from entry:', filePath);
                     
                     // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:640', message: 'Original local_path from entry', data: { local_path: entry.local_path, entryId: entry.id, entryDate: entry.journal_date }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H2' }) }).catch(() => {});
+                    if (isDevelopment) {
+                      fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:640', message: 'Original local_path from entry', data: { local_path: entry.local_path, entryId: entry.id, entryDate: entry.journal_date }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H2' }) }).catch(() => {});
+                    }
                     // #endregion
                     
                     // Remove leading slashes only (Supabase path should not have them)
@@ -708,7 +713,9 @@ const Entry = ({
                     console.log('Entry ID:', entry.id, 'Entry date:', entry.journal_date);
                     
                     // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:652', message: 'File path before getPublicUrl', data: { filePath, originalPath: entry.local_path }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H4' }) }).catch(() => {});
+                    if (isDevelopment) {
+                      fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:652', message: 'File path before getPublicUrl', data: { filePath, originalPath: entry.local_path }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H4' }) }).catch(() => {});
+                    }
                     // #endregion
                     
                     // First, verify the file exists by trying to list it
@@ -720,7 +727,9 @@ const Entry = ({
                         });
                     
                     // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:list-check', message: 'File existence check', data: { filePath, listError: listError?.message, filesFound: listData?.length, files: listData?.map(f => f.name) }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H3,H5' }) }).catch(() => {});
+                    if (isDevelopment) {
+                      fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:list-check', message: 'File existence check', data: { filePath, listError: listError?.message, filesFound: listData?.length, files: listData?.map(f => f.name) }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H3,H5' }) }).catch(() => {});
+                    }
                     // #endregion
                     
                     // Get public URL from Supabase storage (bucket is public)
@@ -730,7 +739,9 @@ const Entry = ({
                         .getPublicUrl(filePath);
                     
                     // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:658', message: 'getPublicUrl result', data: { filePath, publicUrl: publicUrlData?.publicUrl, hasPublicUrl: !!publicUrlData?.publicUrl, fullData: publicUrlData }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H4' }) }).catch(() => {});
+                    if (isDevelopment) {
+                      fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:658', message: 'getPublicUrl result', data: { filePath, publicUrl: publicUrlData?.publicUrl, hasPublicUrl: !!publicUrlData?.publicUrl, fullData: publicUrlData }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H4' }) }).catch(() => {});
+                    }
                     // #endregion
                     
                     if (publicUrlData?.publicUrl) {
@@ -743,7 +754,9 @@ const Entry = ({
                             console.log('URL accessibility check:', { status: headResponse.status, statusText: headResponse.statusText, contentType: headResponse.headers.get('content-type') });
                             
                             // #region agent log
-                            fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:url-check', message: 'URL accessibility check', data: { url: publicUrlData.publicUrl, status: headResponse.status, statusText: headResponse.statusText, contentType: headResponse.headers.get('content-type'), ok: headResponse.ok }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H3,H5' }) }).catch(() => {});
+                            if (isDevelopment) {
+                              fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:url-check', message: 'URL accessibility check', data: { url: publicUrlData.publicUrl, status: headResponse.status, statusText: headResponse.statusText, contentType: headResponse.headers.get('content-type'), ok: headResponse.ok }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H3,H5' }) }).catch(() => {});
+                            }
                             // #endregion
                             
                             if (!headResponse.ok) {
@@ -765,7 +778,9 @@ const Entry = ({
                     }
                 } catch (err) {
                     // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:667', message: 'Error loading audio', data: { error: err.message, stack: err.stack, local_path: entry.local_path }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H2,H4' }) }).catch(() => {});
+                    if (isDevelopment) {
+                      fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:667', message: 'Error loading audio', data: { error: err.message, stack: err.stack, local_path: entry.local_path }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H2,H4' }) }).catch(() => {});
+                    }
                     // #endregion
                     console.error('Error loading audio:', err);
                     console.error('Error stack:', err.stack);
@@ -953,7 +968,9 @@ const Entry = ({
                                         setAudioError(errorMsg);
                                         console.error('Audio playback error:', errorMsg, audioURL);
                                         // #region agent log
-                                        fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:854', message: 'Audio playback error', data: { errorCode: error.code, errorMsg, audioURL, entryId: entry.id, local_path: entry.local_path }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H2,H4' }) }).catch(() => {});
+                                        if (isDevelopment) {
+                                          fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:854', message: 'Audio playback error', data: { errorCode: error.code, errorMsg, audioURL, entryId: entry.id, local_path: entry.local_path }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H2,H4' }) }).catch(() => {});
+                                        }
                                         // #endregion
                                     }
                                 }}

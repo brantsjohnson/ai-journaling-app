@@ -5,10 +5,13 @@ import { useScript } from "./ScriptContext";
 import { useAuth } from "../contexts/AuthContext";
 import { API_BASE } from "../config/api";
 
-// #region agent log
+// #region agent log - Only in development
+const isDevelopment = import.meta.env.DEV || import.meta.env.MODE === 'development';
 const DEBUG_INGEST = 'http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45';
 const dbg = (payload) => {
-  fetch(DEBUG_INGEST, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }) }).catch(() => {});
+  if (isDevelopment) {
+    fetch(DEBUG_INGEST, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1' }) }).catch(() => {});
+  }
 };
 // #endregion
 
