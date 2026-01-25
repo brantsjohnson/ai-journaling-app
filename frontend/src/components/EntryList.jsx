@@ -732,113 +732,20 @@ const Entry = ({
                     }
                     // #endregion
                     
-                    // For private buckets, use createSignedUrl instead of getPublicUrl
-                    // Signed URLs work with RLS policies and authenticated users
-                    // The Supabase client should have the user's session token
-                    
-                    // Verify user session before making storage request
-                    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-                    console.log('🔐 Session check:', {
-                        hasSession: !!session,
-                        hasUser: !!session?.user,
-                        userId: session?.user?.id,
-                        sessionError: sessionError?.message
-                    });
-                    
-                    if (!session) {
-                        console.error('❌ No active session - cannot create signed URL');
-                    }
-                    
-                    console.log('🔐 Creating signed URL for path:', filePath);
-                    let { data: signedUrlData, error: signedUrlError } = await supabase.storage
+                    // For public buckets, use getPublicUrl (much simpler!)
+                    console.log('🔓 Getting public URL for path:', filePath);
+                    const { data: publicUrlData } = supabase.storage
                         .from('audio')
-                        .createSignedUrl(filePath, 3600); // URL valid for 1 hour
+                        .getPublicUrl(filePath);
                     
-                    console.log('🔐 Signed URL result:', {
-                        hasData: !!signedUrlData,
-                        hasSignedUrl: !!signedUrlData?.signedUrl,
-                        hasError: !!signedUrlError,
-                        errorMessage: signedUrlError?.message
-                    });
-                    
-                    // If file not found, the path might be wrong or file doesn't exist
-                    // Note: Listing files might fail due to RLS policies, so we'll just use the path as-is
-                    // and show a helpful error message
-                    if (signedUrlError && signedUrlError.message?.includes('not found')) {
-                        console.warn('⚠️ File not found at path:', filePath);
-                        console.warn('   This usually means:');
-                        console.warn('   1. The path in the database doesn\'t match what\'s in Supabase Storage');
-                        console.warn('   2. The file was deleted from Storage but entry still exists in database');
-                        console.warn('   3. The file is in a subfolder (check Supabase Storage UI)');
-                        
-                        // Try listing files as a diagnostic (might fail due to RLS)
-                        try {
-                            const { data: listData, error: listError } = await supabase.storage
-                                .from('audio')
-                                .list('', { limit: 100 });
-                            
-                            if (listError) {
-                                console.warn('   Cannot list files (RLS policy may not allow listing):', listError.message);
-                            } else if (listData && listData.length > 0) {
-                                const filename = filePath.split('/').pop();
-                                const exactMatch = listData.find(f => f.name === filename);
-                                if (exactMatch) {
-                                    console.log('✅ Found file with different path, retrying...');
-                                    filePath = exactMatch.name;
-                                    const retry = await supabase.storage
-                                        .from('audio')
-                                        .createSignedUrl(filePath, 3600);
-                                    signedUrlData = retry.data;
-                                    signedUrlError = retry.error;
-                                } else {
-                                    console.log('📁 Sample files in bucket:', listData.slice(0, 5).map(f => f.name));
-                                }
-                            } else {
-                                console.warn('   No files found in bucket (or listing not permitted)');
-                            }
-                        } catch (listErr) {
-                            console.warn('   Error listing files:', listErr.message);
-                        }
-                    }
-                    
-                    // #region agent log
-                    if (isDevelopment) {
-                      fetch('http://127.0.0.1:7242/ingest/763f5855-a7cf-4b2d-abed-e04d96151c45', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'EntryList.jsx:658', message: 'createSignedUrl result', data: { filePath, signedUrl: signedUrlData?.signedUrl, hasSignedUrl: !!signedUrlData?.signedUrl, error: signedUrlError?.message, fullData: signedUrlData }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1,H4' }) }).catch(() => {});
-                    }
-                    // #endregion
-                    
-                    if (signedUrlError) {
-                        console.error('❌ Error creating signed URL:', signedUrlError);
-                        console.error('   Error details:', {
-                            message: signedUrlError.message,
-                            status: signedUrlError.statusCode,
-                            filePath: filePath,
-                            originalPath: entry.local_path
-                        });
-                        
-                        // If "Object not found", the path is wrong - try to find the correct path
-                        if (signedUrlError.message?.includes('not found') || signedUrlError.message?.includes('Object not found')) {
-                            console.warn('⚠️ File not found at path:', filePath);
-                            console.warn('   This usually means the path in the database doesn\'t match what\'s in Supabase Storage');
-                            console.warn('   Check Supabase Storage UI to see the actual file path');
-                            
-                            // Try listing files to see what's actually there
-                            const { data: listData } = await supabase.storage
-                                .from('audio')
-                                .list('', { limit: 100 });
-                            console.log('📁 Files in audio bucket:', listData?.map(f => f.name).slice(0, 10));
-                        }
-                        
-                        setAudioError('Audio file not found: ' + signedUrlError.message);
-                        setAudioURL(null);
-                    } else if (signedUrlData?.signedUrl) {
-                        console.log('✅ Successfully generated signed URL');
+                    if (publicUrlData?.publicUrl) {
+                        console.log('✅ Successfully generated public URL');
                         console.log('   File path:', filePath);
-                        console.log('   Signed URL (first 100 chars):', signedUrlData.signedUrl.substring(0, 100) + '...');
-                        // The signedUrl already includes ?token=... - use it directly
-                        setAudioURL(signedUrlData.signedUrl);
+                        console.log('   Public URL:', publicUrlData.publicUrl);
+                        setAudioURL(publicUrlData.publicUrl);
+                        setAudioError(null);
                     } else {
-                        console.error('❌ No signed URL returned (unexpected)');
+                        console.error('❌ No public URL returned (unexpected)');
                         setAudioError('Failed to generate audio URL');
                         setAudioURL(null);
                     }
