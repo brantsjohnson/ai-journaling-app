@@ -8,16 +8,37 @@ let appLoadError = null;
 
 // Try to load backend app at module level, but don't fail if it doesn't work
 try {
-  const backendAppPath = path.join(__dirname, '..', '..', 'backend', 'app');
-  console.log('[DEBUG] Attempting to require backend app from:', backendAppPath);
-  console.log('[DEBUG] __dirname:', __dirname);
-  console.log('[DEBUG] Backend app exists?', fs.existsSync(backendAppPath + '.js'));
-  app = require(backendAppPath);
-  console.log('[DEBUG] Backend app loaded successfully');
+  // Try multiple possible paths for Vercel deployment
+  const possiblePaths = [
+    path.join(__dirname, '..', '..', 'backend', 'app'),
+    path.join(process.cwd(), 'backend', 'app'),
+    path.join(__dirname, '../../backend/app'),
+  ];
+  
+  let loaded = false;
+  for (const backendAppPath of possiblePaths) {
+    const fullPath = backendAppPath + '.js';
+    console.log('[DEBUG] Trying backend path:', backendAppPath);
+    console.log('[DEBUG] Full path exists?', fs.existsSync(fullPath));
+    console.log('[DEBUG] Directory exists?', fs.existsSync(path.dirname(fullPath)));
+    
+    if (fs.existsSync(fullPath)) {
+      app = require(backendAppPath);
+      console.log('[DEBUG] ✅ Backend app loaded successfully from:', backendAppPath);
+      loaded = true;
+      break;
+    }
+  }
+  
+  if (!loaded) {
+    throw new Error(`Backend app not found in any of these paths: ${possiblePaths.join(', ')}`);
+  }
 } catch (err) {
   appLoadError = err;
-  console.error('[DEBUG] Failed to load backend app:', err.message);
+  console.error('[DEBUG] ❌ Failed to load backend app:', err.message);
   console.error('[DEBUG] Error stack:', err.stack);
+  console.error('[DEBUG] Current working directory:', process.cwd());
+  console.error('[DEBUG] __dirname:', __dirname);
 }
 
 // Helper function to set CORS headers

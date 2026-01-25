@@ -19,12 +19,17 @@ const getApiBase = () => {
 const API_BASE = getApiBase();
 
 // Debug logging
+const isFullUrl = API_BASE.startsWith('http://') || API_BASE.startsWith('https://');
+const fullUrlExample = isFullUrl 
+  ? API_BASE + '/auth/login'
+  : (typeof window !== 'undefined' ? window.location.origin + API_BASE + '/auth/login' : API_BASE + '/auth/login');
+
 console.log('🔍 API Configuration Debug:');
 console.log('  - VITE_API_URL:', import.meta.env.VITE_API_URL);
 console.log('  - VITE_API_BASE:', import.meta.env.VITE_API_BASE);
 console.log('  - PROD:', import.meta.env.PROD);
 console.log('  - Hostname:', typeof window !== 'undefined' ? window.location.hostname : 'N/A');
 console.log('  - Final API_BASE:', API_BASE);
-console.log('  - Full URL example:', API_BASE + '/auth/login');
+console.log('  - Full URL example:', fullUrlExample);
 
 export { API_BASE };
