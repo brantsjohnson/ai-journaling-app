@@ -226,6 +226,15 @@ exports.transcribeAudio = async (req, res) => {
     });
     formData.append('model', 'whisper-1');
 
+    console.log('Sending to OpenAI Whisper API with:', {
+      fileSize: `${(req.file.size / 1024 / 1024).toFixed(2)}MB`,
+      fileSizeBytes: req.file.size,
+      duration: `${durationSeconds}s`,
+      timeout: '780s',
+      apiKeyLength: apiKey.length,
+      apiKeyPrefix: apiKey.substring(0, 10) + '...'
+    });
+
     const response = await axios.post('https://api.openai.com/v1/audio/transcriptions', formData, {
       headers: {
         ...formData.getHeaders(),
@@ -260,7 +269,22 @@ exports.transcribeAudio = async (req, res) => {
     dbgLog('transcriptionController.js:catch', 'Transcribe error', { message: err.message, status: err.response?.status, code: err.code, hasResponse: !!err.response }, 'H1,H3,H4');
     // #endregion
     console.error('Transcription error:', err.message);
+    console.error('Error code:', err.code);
     console.error('Error stack:', err.stack);
+    console.error('Has response:', !!err.response);
+    if (err.response) {
+      console.error('Response status:', err.response.status);
+      console.error('Response data:', JSON.stringify(err.response.data, null, 2));
+    }
+    if (err.request) {
+      console.error('Request made but no response received');
+      console.error('Request config:', {
+        url: err.config?.url,
+        method: err.config?.method,
+        timeout: err.config?.timeout,
+        hasAuth: !!err.config?.headers?.Authorization
+      });
+    }
 
     if (err.response) {
       console.error('OpenAI API error:', err.response.status, err.response.data);
@@ -274,11 +298,13 @@ exports.transcribeAudio = async (req, res) => {
       
       let errorMessage = 'OpenAI transcription failed';
       if (err.response.status === 401) {
-        errorMessage = 'OpenAI API key is invalid or expired. Please check your API key in Vercel environment variables.';
+        errorMessage = 'OpenAI API key is invalid or expired. Please verify your API key in Vercel environment variables and ensure it starts with "sk-".';
       } else if (err.response.status === 429) {
         errorMessage = 'OpenAI rate limit exceeded. Please check your account billing or try again later.';
       } else if (err.response.status === 413) {
         errorMessage = 'Audio file is too large. Maximum size is 25MB.';
+      } else if (err.response.status === 400) {
+        errorMessage = `Invalid request: ${err.response.data?.error?.message || 'Please check the audio file format.'}`;
       } else {
         errorMessage = err.response.data?.error?.message || err.response.statusText || errorMessage;
       }
@@ -297,12 +323,23 @@ exports.transcribeAudio = async (req, res) => {
 
     console.error('Non-response error. Has API key:', !!process.env.OPEN_AI_KEY);
     console.error('API key prefix:', process.env.OPEN_AI_KEY?.substring(0, 15) || 'NOT SET');
+    
+    // Handle timeout specifically
+    let errorMessage = 'Transcription failed due to an unexpected error';
+    if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+      errorMessage = 'Request timed out. The audio file may be too long or OpenAI is taking longer than expected. Try a shorter recording or try again.';
+    } else if (err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED') {
+      errorMessage = 'Network error: Could not connect to OpenAI. Please check your internet connection and try again.';
+    } else if (err.message) {
+      errorMessage = err.message;
+    }
 
     res.status(500).json({
       status: 'error',
-      message: err.message || 'Transcription failed due to an unexpected error',
+      message: errorMessage,
       error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',
       audio_saved: false, // Can't determine if audio was saved in this error path
+      error_code: err.code || 'UNKNOWN',
     });
   }
 };
