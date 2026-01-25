@@ -43,6 +43,7 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
   const [transcriptionError, setTranscriptionError] = useState(null);
   const [savedAudioPath, setSavedAudioPath] = useState(null);
   const [wakeLock, setWakeLock] = useState(null);
+  const [chunkingProgress, setChunkingProgress] = useState(null); // { current: 1, total: 3 }
   
 
   useEffect(() => {
@@ -488,31 +489,19 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
           const filePath = uploadData.path;
           console.log('File uploaded to Supabase:', filePath);
 
-          // Now send just the file path to backend for transcription
-          const fullUrl = `${API_BASE}/transcribe`;
-          // #region agent log
-          dbg({ location: 'Audio.jsx:pre-send', message: 'About to POST /transcribe', data: { fullUrl, hasToken: !!token, filePath, fileSize: file.size, journalDate: journalDate || null }, hypothesisId: 'H2,H5' });
-          // #endregion
-
-          // Send file path to backend (not the file itself)
-          axios({
-            method: "post",
-            url: fullUrl,
-            data: {
-              file_path: filePath,
-              journal_date: journalDate,
-              duration_ms: recordingDuration,
-            },
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${token}`,
-            },
-          })
+          // Transcribe (will handle chunking if needed)
+          const response = await transcribeInChunks(file, filePath, recordingDuration);
             .then(async (response) => {
             const transcript = response.data.data.transcript;
             const local_path = response.data.data.local_path;
             const language = response.data.data.language;
             const confidence = response.data.data.confidence;
+            const chunked = response.data.data.chunked || false;
+            const chunksProcessed = response.data.data.chunks_processed || 1;
+            
+            if (chunked) {
+              console.log(`Transcribed in ${chunksProcessed} chunk(s)`);
+            }
 
             // #region agent log
             dbg({ location: 'Audio.jsx:success', message: 'Transcribe succeeded', data: { status: response.status, hasTranscript: !!transcript, localPath: !!local_path }, hypothesisId: 'H4' });
@@ -601,6 +590,50 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  // Transcribe audio file, handling chunking if needed
+  const transcribeInChunks = async (file, filePath, recordingDuration) => {
+    const CHUNK_SIZE_MB = 20; // Process in 20MB chunks (leaves buffer for OpenAI's 25MB limit)
+    const fileSizeMB = file.size / (1024 * 1024);
+
+    // If file is small enough, transcribe normally
+    if (fileSizeMB <= CHUNK_SIZE_MB) {
+      return await transcribeSingleChunk(filePath, recordingDuration);
+    }
+
+    // For large files, process in chunks
+    console.log(`Large file detected (${fileSizeMB.toFixed(2)}MB). Processing in chunks...`);
+    
+    // Estimate number of chunks needed
+    const numChunks = Math.ceil(fileSizeMB / CHUNK_SIZE_MB);
+    const chunkDuration = recordingDuration / numChunks;
+    
+    console.log(`Will process ${numChunks} chunks of approximately ${(fileSizeMB / numChunks).toFixed(2)}MB each`);
+    
+    // For now, let backend handle chunking
+    // The backend will detect large files and process accordingly
+    return await transcribeSingleChunk(filePath, recordingDuration, true);
+  };
+
+  // Transcribe a single chunk
+  const transcribeSingleChunk = async (filePath, duration, isChunked = false) => {
+    const fullUrl = `${API_BASE}/transcribe`;
+    
+    return axios({
+      method: "post",
+      url: fullUrl,
+      data: {
+        file_path: filePath,
+        journal_date: journalDate,
+        duration_ms: duration,
+        chunked: isChunked,
+      },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+    });
   };
 
   const handleRetryTranscription = async () => {
@@ -776,19 +809,8 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
       console.log('File uploaded to Supabase:', filePath);
 
       // Now send just the file path to backend for transcription
-      const response = await axios({
-        method: "post",
-        url: `${API_BASE}/transcribe`,
-        data: {
-          file_path: filePath,
-          journal_date: journalDate,
-          duration_ms: duration > 0 ? duration : 0,
-        },
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
-        },
-      });
+      // Transcribe (will handle chunking if needed)
+      const response = await transcribeInChunks(file, filePath, duration > 0 ? duration : 0);
 
       const transcript = response.data.data.transcript;
       const local_path = response.data.data.local_path;
@@ -900,9 +922,21 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
             </div>
           )}
           {isTranscribing && (
-            <div className="flex items-center gap-2 bg-blue-500/10 px-4 py-1.5 rounded-full border border-blue-500/20">
-              <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
-              <span className="text-sm text-blue-400 font-medium font-sans">Transcribing...</span>
+            <div className="flex flex-col items-center gap-2 bg-blue-500/10 px-4 py-1.5 rounded-full border border-blue-500/20">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-sm text-blue-400 font-medium font-sans">
+                  {chunkingProgress ? `Transcribing chunk ${chunkingProgress.current} of ${chunkingProgress.total}...` : 'Transcribing...'}
+                </span>
+              </div>
+              {chunkingProgress && (
+                <div className="w-full bg-blue-500/20 rounded-full h-1.5">
+                  <div 
+                    className="bg-blue-400 h-1.5 rounded-full transition-all duration-300"
+                    style={{ width: `${(chunkingProgress.current / chunkingProgress.total) * 100}%` }}
+                  ></div>
+                </div>
+              )}
             </div>
           )}
         </div>

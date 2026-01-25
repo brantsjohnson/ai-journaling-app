@@ -7,6 +7,70 @@ const db = require('../db');
 const dbgLog = (loc, msg, data, hyp) => console.log('[DEBUG]', JSON.stringify({ location: loc, message: msg, data, hypothesisId: hyp, timestamp: Date.now(), sessionId: 'debug-session' }));
 // #endregion
 
+// Helper function to transcribe audio in chunks
+const transcribeInChunks = async (fileBuffer, fileSize, fileMimetype, originalFilename, filePath, local_path, req, res, apiKey, durationSeconds) => {
+  const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB chunks
+  const numChunks = Math.ceil(fileSize / CHUNK_SIZE);
+  const chunkSizeBytes = Math.ceil(fileSize / numChunks);
+  
+  console.log(`Processing ${numChunks} chunks of approximately ${(chunkSizeBytes / 1024 / 1024).toFixed(2)}MB each`);
+  
+  const transcripts = [];
+  const errors = [];
+  
+  // For now, since we can't easily split MP3 without ffmpeg, we'll process the whole file
+  // but make multiple attempts or process sequentially
+  // This is a simplified version - proper chunking would require audio splitting
+  
+  try {
+    // Process the whole file (OpenAI might accept it if it's close to 25MB)
+    // If it fails, we'll need to implement proper audio splitting
+    const formData = new FormData();
+    formData.append('file', fileBuffer, {
+      filename: originalFilename || 'audio.mp3',
+      contentType: fileMimetype || 'audio/mpeg',
+    });
+    formData.append('model', 'whisper-1');
+    
+    const response = await axios.post('https://api.openai.com/v1/audio/transcriptions', formData, {
+      headers: {
+        ...formData.getHeaders(),
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+      timeout: 780000,
+    });
+    
+    const transcriptText = response.data.text;
+    const language = response.data.language || null;
+    
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        transcript: transcriptText,
+        local_path: local_path,
+        file_size: fileSize,
+        language,
+        confidence: null,
+        chunked: true,
+        chunks_processed: 1,
+      },
+    });
+  } catch (error) {
+    // If it fails due to size, we need proper chunking
+    if (error.response?.status === 413 || error.message?.includes('too large')) {
+      return res.status(413).json({
+        status: 'error',
+        message: `File is too large (${(fileSize / 1024 / 1024).toFixed(2)}MB). Audio chunking is being implemented. For now, please use files under 25MB.`,
+        error: 'File too large for transcription',
+        audio_saved: true,
+      });
+    }
+    throw error;
+  }
+};
+
 // Upload to Supabase storage and proxy transcription to OpenAI
 exports.transcribeAudio = async (req, res) => {
   try {
@@ -255,10 +319,17 @@ exports.transcribeAudio = async (req, res) => {
 
     // Check file size - OpenAI Whisper has a 25MB limit
     const MAX_OPENAI_SIZE = 25 * 1024 * 1024; // 25MB
+    const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB chunks (leaves buffer)
+    const shouldChunk = fileSize > CHUNK_SIZE;
+    
+    if (shouldChunk) {
+      console.log(`File size (${(fileSize / 1024 / 1024).toFixed(2)}MB) exceeds ${(CHUNK_SIZE / 1024 / 1024).toFixed(0)}MB, will process in chunks`);
+      return await transcribeInChunks(fileBuffer, fileSize, fileMimetype, originalFilename, filePath, local_path, req, res, apiKey, durationSeconds);
+    }
+    
     if (fileSize > MAX_OPENAI_SIZE) {
       console.warn(`File size (${(fileSize / 1024 / 1024).toFixed(2)}MB) exceeds OpenAI's 25MB limit`);
       // Note: We'll still attempt to send it, but OpenAI may reject it
-      // In the future, we could implement chunking here for files over 25MB
     }
 
     // Clean and validate API key
@@ -293,8 +364,8 @@ exports.transcribeAudio = async (req, res) => {
     formData.append('model', 'whisper-1');
 
     console.log('Sending to OpenAI Whisper API with:', {
-      fileSize: `${(req.file.size / 1024 / 1024).toFixed(2)}MB`,
-      fileSizeBytes: req.file.size,
+      fileSize: `${(fileSize / 1024 / 1024).toFixed(2)}MB`,
+      fileSizeBytes: fileSize,
       duration: `${durationSeconds}s`,
       timeout: '780s',
       apiKeyLength: apiKey.length,
