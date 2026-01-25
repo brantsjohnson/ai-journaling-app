@@ -687,6 +687,140 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
     }
   };
 
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/webm', 'audio/m4a', 'audio/mp4'];
+    if (!allowedTypes.includes(file.type) && !file.name.match(/\.(mp3|wav|webm|m4a|mp4)$/i)) {
+      alert('Please upload a valid audio file (MP3, WAV, WebM, M4A, or MP4)');
+      return;
+    }
+
+    // Check file size (60MB limit)
+    const maxSize = 60 * 1024 * 1024; // 60MB
+    if (file.size > maxSize) {
+      alert(`File is too large. Maximum size is 60MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+      return;
+    }
+
+    // Create blob URL for playback
+    const blobURL = URL.createObjectURL(file);
+    setBlobURL(blobURL);
+    setAudioFile(file);
+
+    // Try to get duration from the audio file
+    try {
+      const audio = new Audio(blobURL);
+      audio.addEventListener('loadedmetadata', () => {
+        const fileDuration = Math.round(audio.duration * 1000);
+        setDuration(fileDuration);
+        localStorage.setItem('audio_duration', fileDuration.toString());
+      });
+    } catch (err) {
+      console.warn('Could not get audio duration:', err);
+    }
+
+    // Persist audio state to localStorage
+    try {
+      localStorage.setItem('audio_blob_url', blobURL);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const audioFileData = {
+          name: file.name,
+          type: file.type,
+          lastModified: file.lastModified,
+          dataURL: reader.result,
+        };
+        localStorage.setItem('audio_file', JSON.stringify(audioFileData));
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Error saving audio to localStorage:', err);
+    }
+
+    // Automatically transcribe the uploaded file
+    const formData = new FormData();
+    formData.append("audio", file);
+    if (journalDate) {
+      formData.append("journal_date", journalDate);
+    }
+    // Estimate duration if we have it
+    if (duration > 0) {
+      formData.append("duration_ms", duration.toString());
+    }
+
+    setIsTranscribing(true);
+    setTranscriptionError(null);
+
+    try {
+      const response = await axios({
+        method: "post",
+        url: `${API_BASE}/transcribe`,
+        data: formData,
+        headers: {
+          "Content-Type": "multipart/form-data",
+          "Authorization": `Bearer ${token}`,
+        },
+      });
+
+      const transcript = response.data.data.transcript;
+      const local_path = response.data.data.local_path;
+      const language = response.data.data.language;
+      const confidence = response.data.data.confidence;
+
+      setScript(transcript);
+      setSavedAudioPath(local_path);
+
+      // Save transcript to transcripts table if entryId is provided
+      if (entryId && token) {
+        try {
+          await axios.post(
+            `${API_BASE}/transcripts`,
+            {
+              recording_id: entryId,
+              text: transcript,
+              language: language,
+              confidence: confidence,
+            },
+            {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+            }
+          );
+          console.log("Transcript saved to database");
+        } catch (transcriptError) {
+          console.error("Error saving transcript to database:", transcriptError);
+        }
+      }
+
+      // Notify parent component
+      if (onRecordingComplete) {
+        onRecordingComplete({
+          transcript,
+          duration_ms: duration || 0,
+          local_path,
+          audioFile: file,
+        });
+      }
+
+      setIsTranscribing(false);
+    } catch (error) {
+      console.error("Transcription error:", error);
+      setIsTranscribing(false);
+      setTranscriptionError({
+        message: error.response?.data?.message || "Transcription failed. Please try again.",
+        audio_saved: error.response?.data?.audio_saved || false,
+      });
+    }
+
+    // Reset file input
+    event.target.value = '';
+  };
+
   return (
     <div className='flex flex-col gap-4 w-full max-w-md mx-auto'>
       <div className="flex items-center justify-center gap-6">
@@ -706,6 +840,25 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
         >
           <span className="text-2xl drop-shadow-sm">⏹</span>
         </button>
+      </div>
+      
+      {/* Upload Audio Button */}
+      <div className="flex items-center justify-center">
+        <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer transition-colors font-sans text-sm font-medium">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+          Upload Audio
+          <input
+            type="file"
+            accept="audio/*,.mp3,.wav,.webm,.m4a,.mp4"
+            onChange={handleFileUpload}
+            disabled={isRecording || isTranscribing}
+            className="hidden"
+          />
+        </label>
       </div>
         
       {(isRecording || isTranscribing) && (
