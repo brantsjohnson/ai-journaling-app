@@ -8,23 +8,18 @@ const dbgLog = (loc, msg, data, hyp) => console.log('[DEBUG]', JSON.stringify({ 
 // #endregion
 
 // Helper function to transcribe audio in chunks
+// Note: Proper audio splitting requires ffmpeg or similar. This is a simplified version.
 const transcribeInChunks = async (fileBuffer, fileSize, fileMimetype, originalFilename, filePath, local_path, req, res, apiKey, durationSeconds) => {
   const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB chunks
   const numChunks = Math.ceil(fileSize / CHUNK_SIZE);
-  const chunkSizeBytes = Math.ceil(fileSize / numChunks);
   
-  console.log(`Processing ${numChunks} chunks of approximately ${(chunkSizeBytes / 1024 / 1024).toFixed(2)}MB each`);
-  
-  const transcripts = [];
-  const errors = [];
-  
-  // For now, since we can't easily split MP3 without ffmpeg, we'll process the whole file
-  // but make multiple attempts or process sequentially
-  // This is a simplified version - proper chunking would require audio splitting
+  console.log(`Large file detected: ${(fileSize / 1024 / 1024).toFixed(2)}MB`);
+  console.log(`Would need ${numChunks} chunks, but proper audio splitting requires ffmpeg`);
+  console.log(`Attempting to transcribe whole file - OpenAI may accept files slightly over 25MB`);
   
   try {
-    // Process the whole file (OpenAI might accept it if it's close to 25MB)
-    // If it fails, we'll need to implement proper audio splitting
+    // Try to transcribe the whole file first
+    // OpenAI sometimes accepts files slightly over 25MB
     const formData = new FormData();
     formData.append('file', fileBuffer, {
       filename: originalFilename || 'audio.mp3',
@@ -45,6 +40,8 @@ const transcribeInChunks = async (fileBuffer, fileSize, fileMimetype, originalFi
     const transcriptText = response.data.text;
     const language = response.data.language || null;
     
+    console.log('Successfully transcribed large file as single chunk');
+    
     return res.status(200).json({
       status: 'success',
       data: {
@@ -58,13 +55,15 @@ const transcribeInChunks = async (fileBuffer, fileSize, fileMimetype, originalFi
       },
     });
   } catch (error) {
-    // If it fails due to size, we need proper chunking
-    if (error.response?.status === 413 || error.message?.includes('too large')) {
+    // If it fails due to size, we need proper chunking with audio splitting
+    if (error.response?.status === 413 || error.message?.includes('too large') || error.response?.data?.error?.message?.includes('too large')) {
+      console.error('File too large for single transcription. Proper chunking requires audio splitting library.');
       return res.status(413).json({
         status: 'error',
-        message: `File is too large (${(fileSize / 1024 / 1024).toFixed(2)}MB). Audio chunking is being implemented. For now, please use files under 25MB.`,
+        message: `File is too large (${(fileSize / 1024 / 1024).toFixed(2)}MB) for transcription. Audio chunking with proper splitting is being implemented. For now, please record files under 25MB or split them manually.`,
         error: 'File too large for transcription',
         audio_saved: true,
+        suggestion: 'Try recording in shorter segments or use a file under 25MB',
       });
     }
     throw error;
