@@ -491,13 +491,18 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
 
           // Transcribe (will handle chunking if needed)
           const response = await transcribeInChunks(file, filePath, recordingDuration);
+          
+          // Handle response (could be direct axios response or our combined response)
+          const responseData = response.data || response;
             .then(async (response) => {
-            const transcript = response.data.data.transcript;
-            const local_path = response.data.data.local_path;
-            const language = response.data.data.language;
-            const confidence = response.data.data.confidence;
-            const chunked = response.data.data.chunked || false;
-            const chunksProcessed = response.data.data.chunks_processed || 1;
+            // Handle both direct axios response and our combined chunk response
+            const responseData = response.data || response;
+            const transcript = responseData.data.transcript;
+            const local_path = responseData.data.local_path;
+            const language = responseData.data.language;
+            const confidence = responseData.data.confidence;
+            const chunked = responseData.data.chunked || false;
+            const chunksProcessed = responseData.data.chunks_processed || 1;
             
             if (chunked) {
               console.log(`Transcribed in ${chunksProcessed} chunk(s)`);
@@ -553,14 +558,16 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
           .catch((error) => {
             console.error("Transcription error:", error);
             setIsTranscribing(false);
+            setChunkingProgress(null);
             setTranscriptionError({
-              message: error.response?.data?.message || "Transcription failed. Please try again.",
+              message: error.response?.data?.message || error.message || "Transcription failed. Please try again.",
               audio_saved: error.response?.data?.audio_saved || false,
             });
           });
         } catch (uploadErr) {
           console.error("Supabase upload error:", uploadErr);
           setIsTranscribing(false);
+          setChunkingProgress(null);
           setTranscriptionError({
             message: `Upload failed: ${uploadErr.message}. Please try again.`,
             audio_saved: false,
@@ -592,7 +599,125 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  // Transcribe audio file, handling chunking if needed
+  // Split audio file into chunks using Web Audio API
+  const splitAudioIntoChunks = async (audioFile, maxChunkSizeMB = 20) => {
+    const maxChunkSize = maxChunkSizeMB * 1024 * 1024; // Convert to bytes
+    const fileSize = audioFile.size;
+    
+    // If file is small enough, return as single chunk
+    if (fileSize <= maxChunkSize) {
+      return [{ file: audioFile, startTime: 0, endTime: duration || 0 }];
+    }
+
+    console.log(`File size (${(fileSize / 1024 / 1024).toFixed(2)}MB) exceeds ${maxChunkSizeMB}MB, splitting into chunks...`);
+
+    try {
+      // Decode audio file using Web Audio API
+      const arrayBuffer = await audioFile.arrayBuffer();
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      
+      const sampleRate = audioBuffer.sampleRate;
+      const durationSeconds = audioBuffer.duration;
+      const totalSamples = audioBuffer.length;
+      
+      // Calculate chunk size in samples (approximate based on file size ratio)
+      const fileSizeRatio = maxChunkSize / fileSize;
+      const chunkDurationSeconds = durationSeconds * fileSizeRatio;
+      const chunkSamples = Math.floor(sampleRate * chunkDurationSeconds);
+      const numChunks = Math.ceil(totalSamples / chunkSamples);
+      
+      console.log(`Splitting into ${numChunks} chunks of approximately ${chunkDurationSeconds.toFixed(1)}s each`);
+      
+      const chunks = [];
+      
+      for (let i = 0; i < numChunks; i++) {
+        const startSample = i * chunkSamples;
+        const endSample = Math.min(startSample + chunkSamples, totalSamples);
+        const chunkLength = endSample - startSample;
+        
+        // Create new audio buffer for this chunk
+        const chunkBuffer = audioContext.createBuffer(
+          audioBuffer.numberOfChannels,
+          chunkLength,
+          sampleRate
+        );
+        
+        // Copy audio data for each channel
+        for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+          const originalData = audioBuffer.getChannelData(channel);
+          const chunkData = chunkBuffer.getChannelData(channel);
+          for (let j = 0; j < chunkLength; j++) {
+            chunkData[j] = originalData[startSample + j];
+          }
+        }
+        
+        // Convert audio buffer back to WAV blob (MP3 encoding requires library)
+        // For now, we'll use WAV format for chunks
+        const wavBlob = audioBufferToWav(chunkBuffer);
+        const chunkFile = new File([wavBlob], `chunk_${i + 1}.wav`, { type: 'audio/wav' });
+        
+        chunks.push({
+          file: chunkFile,
+          index: i + 1,
+          total: numChunks,
+          startTime: startSample / sampleRate,
+          endTime: endSample / sampleRate,
+        });
+      }
+      
+      audioContext.close();
+      return chunks;
+    } catch (error) {
+      console.error('Error splitting audio:', error);
+      // Fallback: return original file
+      return [{ file: audioFile, startTime: 0, endTime: duration || 0 }];
+    }
+  };
+
+  // Convert AudioBuffer to WAV blob
+  const audioBufferToWav = (buffer) => {
+    const length = buffer.length;
+    const numberOfChannels = buffer.numberOfChannels;
+    const sampleRate = buffer.sampleRate;
+    const arrayBuffer = new ArrayBuffer(44 + length * numberOfChannels * 2);
+    const view = new DataView(arrayBuffer);
+    
+    // WAV header
+    const writeString = (offset, string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    };
+    
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + length * numberOfChannels * 2, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numberOfChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * numberOfChannels * 2, true);
+    view.setUint16(32, numberOfChannels * 2, true);
+    view.setUint16(34, 16, true);
+    writeString(36, 'data');
+    view.setUint32(40, length * numberOfChannels * 2, true);
+    
+    // Convert float samples to 16-bit PCM
+    let offset = 44;
+    for (let i = 0; i < length; i++) {
+      for (let channel = 0; channel < numberOfChannels; channel++) {
+        const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+        offset += 2;
+      }
+    }
+    
+    return new Blob([arrayBuffer], { type: 'audio/wav' });
+  };
+
+  // Transcribe audio file in chunks
   const transcribeInChunks = async (file, filePath, recordingDuration) => {
     const CHUNK_SIZE_MB = 20; // Process in 20MB chunks (leaves buffer for OpenAI's 25MB limit)
     const fileSizeMB = file.size / (1024 * 1024);
@@ -602,18 +727,87 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
       return await transcribeSingleChunk(filePath, recordingDuration);
     }
 
-    // For large files, process in chunks
-    console.log(`Large file detected (${fileSizeMB.toFixed(2)}MB). Processing in chunks...`);
+    // For large files, split and transcribe in chunks
+    console.log(`Large file detected (${fileSizeMB.toFixed(2)}MB). Splitting and processing in chunks...`);
     
-    // Estimate number of chunks needed
-    const numChunks = Math.ceil(fileSizeMB / CHUNK_SIZE_MB);
-    const chunkDuration = recordingDuration / numChunks;
+    setChunkingProgress({ current: 0, total: 0 }); // Will update as we go
     
-    console.log(`Will process ${numChunks} chunks of approximately ${(fileSizeMB / numChunks).toFixed(2)}MB each`);
+    const chunks = await splitAudioIntoChunks(file, CHUNK_SIZE_MB);
+    const numChunks = chunks.length;
     
-    // For now, let backend handle chunking
-    // The backend will detect large files and process accordingly
-    return await transcribeSingleChunk(filePath, recordingDuration, true);
+    console.log(`Split into ${numChunks} chunks, transcribing each...`);
+    setChunkingProgress({ current: 0, total: numChunks });
+    
+    const transcripts = [];
+    const errors = [];
+    
+    // Upload and transcribe each chunk
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      setChunkingProgress({ current: i + 1, total: numChunks });
+      
+      try {
+        // Upload chunk to Supabase
+        const dateParts = (journalDate || new Date().toISOString().split('T')[0]).split('-');
+        const formattedDate = `${dateParts[1]}-${dateParts[2]}-${dateParts[0]}`;
+        const uniqueSuffix = Date.now().toString().slice(-6);
+        const chunkFilename = `${formattedDate}--chunk-${chunk.index}--${uniqueSuffix}.wav`;
+        
+        const { data: chunkUploadData, error: chunkUploadError } = await supabase.storage
+          .from('audio')
+          .upload(chunkFilename, chunk.file, {
+            contentType: 'audio/wav',
+            upsert: true,
+          });
+
+        if (chunkUploadError) {
+          throw new Error(`Failed to upload chunk ${chunk.index}: ${chunkUploadError.message}`);
+        }
+
+        // Transcribe this chunk
+        const chunkResponse = await transcribeSingleChunk(chunkUploadData.path, (chunk.endTime - chunk.startTime) * 1000);
+        
+        if (chunkResponse.data?.data?.transcript) {
+          transcripts.push({
+            text: chunkResponse.data.data.transcript,
+            index: chunk.index,
+            startTime: chunk.startTime,
+            endTime: chunk.endTime,
+          });
+          console.log(`Chunk ${chunk.index}/${numChunks} transcribed successfully`);
+        }
+      } catch (error) {
+        console.error(`Error transcribing chunk ${chunk.index}:`, error);
+        errors.push({ chunk: chunk.index, error: error.message });
+      }
+    }
+    
+    // Combine all transcripts
+    if (transcripts.length === 0) {
+      throw new Error('Failed to transcribe any chunks. ' + (errors.length > 0 ? errors[0].error : ''));
+    }
+    
+    // Sort by index and combine
+    transcripts.sort((a, b) => a.index - b.index);
+    const combinedTranscript = transcripts.map(t => t.text).join('\n\n');
+    
+    console.log(`Successfully transcribed ${transcripts.length}/${numChunks} chunks`);
+    
+    // Return combined transcript in the same format as single transcription
+    return {
+      data: {
+        data: {
+          transcript: combinedTranscript,
+          local_path: filePath, // Use original file path
+          file_size: file.size,
+          language: null,
+          confidence: null,
+          chunked: true,
+          chunks_processed: transcripts.length,
+          total_chunks: numChunks,
+        }
+      }
+    };
   };
 
   // Transcribe a single chunk
@@ -855,11 +1049,13 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
       }
 
       setIsTranscribing(false);
+      setChunkingProgress(null);
     } catch (error) {
       console.error("Transcription error:", error);
       setIsTranscribing(false);
+      setChunkingProgress(null);
       setTranscriptionError({
-        message: error.response?.data?.message || "Transcription failed. Please try again.",
+        message: error.response?.data?.message || error.message || "Transcription failed. Please try again.",
         audio_saved: error.response?.data?.audio_saved || false,
       });
     }
