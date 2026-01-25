@@ -10,7 +10,9 @@
   ],
   "functions": {
     "api/journal-ease/[...all].js": {
-      "includeFiles": "backend/**"
+      "includeFiles": "backend/**",
+      "runtime": "nodejs20.x",
+      "maxDuration": 30
     }
   }
 }
