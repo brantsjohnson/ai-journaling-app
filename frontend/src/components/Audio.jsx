@@ -494,83 +494,70 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
           
           // Handle response (could be direct axios response or our combined response)
           const responseData = response.data || response;
-            .then(async (response) => {
-            // Handle both direct axios response and our combined chunk response
-            const responseData = response.data || response;
-            const transcript = responseData.data.transcript;
-            const local_path = responseData.data.local_path;
-            const language = responseData.data.language;
-            const confidence = responseData.data.confidence;
-            const chunked = responseData.data.chunked || false;
-            const chunksProcessed = responseData.data.chunks_processed || 1;
-            
-            if (chunked) {
-              console.log(`Transcribed in ${chunksProcessed} chunk(s)`);
-            }
+          const transcript = responseData.data.transcript;
+          const local_path = responseData.data.local_path;
+          const language = responseData.data.language;
+          const confidence = responseData.data.confidence;
+          const chunked = responseData.data.chunked || false;
+          const chunksProcessed = responseData.data.chunks_processed || 1;
+          
+          if (chunked) {
+            console.log(`Transcribed in ${chunksProcessed} chunk(s)`);
+          }
 
-            // #region agent log
-            dbg({ location: 'Audio.jsx:success', message: 'Transcribe succeeded', data: { status: response.status, hasTranscript: !!transcript, localPath: !!local_path }, hypothesisId: 'H4' });
-            // #endregion
-            
-            console.log("Transcript:", transcript);
-            console.log("Audio saved at:", local_path);
-           
-            setScript(transcript);
-            setSavedAudioPath(local_path);
-            
-            // Save transcript to transcripts table if entryId is provided
-            if (entryId && token) {
-              try {
-                await axios.post(
-                  `${API_BASE}/transcripts`,
-                  {
-                    recording_id: entryId,
-                    text: transcript,
-                    language: language,
-                    confidence: confidence,
+          // #region agent log
+          dbg({ location: 'Audio.jsx:success', message: 'Transcribe succeeded', data: { status: response.status, hasTranscript: !!transcript, localPath: !!local_path }, hypothesisId: 'H4' });
+          // #endregion
+          
+          console.log("Transcript:", transcript);
+          console.log("Audio saved at:", local_path);
+         
+          setScript(transcript);
+          setSavedAudioPath(local_path);
+          
+          // Save transcript to transcripts table if entryId is provided
+          if (entryId && token) {
+            try {
+              await axios.post(
+                `${API_BASE}/transcripts`,
+                {
+                  recording_id: entryId,
+                  text: transcript,
+                  language: language,
+                  confidence: confidence,
+                },
+                {
+                  headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
                   },
-                  {
-                    headers: {
-                      'Authorization': `Bearer ${token}`,
-                      'Content-Type': 'application/json',
-                    },
-                  }
-                );
-                console.log("Transcript saved to database");
-              } catch (transcriptError) {
-                console.error("Error saving transcript to database:", transcriptError);
-                // Don't fail the whole process if transcript saving fails
-              }
+                }
+              );
+              console.log("Transcript saved to database");
+            } catch (transcriptError) {
+              console.error("Error saving transcript to database:", transcriptError);
+              // Don't fail the whole process if transcript saving fails
             }
-            
-            // Notify parent component about recording completion
-            if (onRecordingComplete) {
-              onRecordingComplete({
-                transcript,
-                duration_ms: recordingDuration,
-                local_path,
-                audioFile: file,
-              });
-            }
-            
-            setIsTranscribing(false);
-          })
-          .catch((error) => {
-            console.error("Transcription error:", error);
-            setIsTranscribing(false);
-            setChunkingProgress(null);
-            setTranscriptionError({
-              message: error.response?.data?.message || error.message || "Transcription failed. Please try again.",
-              audio_saved: error.response?.data?.audio_saved || false,
+          }
+          
+          // Notify parent component about recording completion
+          if (onRecordingComplete) {
+            onRecordingComplete({
+              transcript,
+              duration_ms: recordingDuration,
+              local_path,
+              audioFile: file,
             });
-          });
-        } catch (uploadErr) {
-          console.error("Supabase upload error:", uploadErr);
+          }
+          
+          setIsTranscribing(false);
+        } catch (error) {
+          console.error("Transcription/Upload error:", error);
           setIsTranscribing(false);
           setChunkingProgress(null);
           setTranscriptionError({
-            message: `Upload failed: ${uploadErr.message}. Please try again.`,
-            audio_saved: false,
+            message: error.response?.data?.message || error.message || "Transcription failed. Please try again.",
+            audio_saved: error.response?.data?.audio_saved || false,
           });
         }
 
