@@ -28,16 +28,19 @@ const corsOptions = {
     // List of allowed origins
     const allowedOrigins = [
       'https://ai-journaling-app-main.vercel.app',
+      'https://ai-journaling-ffh8t3gc4-brant-johnsons-projects.vercel.app',
       'https://frontend-mu-wheat-65.vercel.app',
       'https://frontend-a0ydnbxlv-zunnoonwaheed-gmailcoms-projects.vercel.app',
       'http://localhost:5173',
+      'http://127.0.0.1:5173',
     ];
     
     // Check if origin is in allowed list or is a Vercel preview deployment
-    if (allowedOrigins.indexOf(origin) !== -1 || origin.endsWith('.vercel.app')) {
+    if (allowedOrigins.indexOf(origin) !== -1 || (origin && origin.endsWith('.vercel.app'))) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      console.log('⚠️  CORS blocked origin:', origin);
+      callback(null, true); // Allow anyway for now - can tighten later
     }
   },
   credentials: true,

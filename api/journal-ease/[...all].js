@@ -45,7 +45,9 @@ try {
 function setCorsHeaders(res, origin) {
   const allowedOrigins = [
     'https://ai-journaling-app-main.vercel.app',
+    'https://ai-journaling-ffh8t3gc4-brant-johnsons-projects.vercel.app',
     'http://localhost:5173',
+    'http://127.0.0.1:5173',
   ];
   
   // Check if origin is allowed
@@ -63,6 +65,18 @@ function setCorsHeaders(res, origin) {
     res.setHeader('Access-Control-Max-Age', '86400');
     return true;
   }
+  
+  console.log('⚠️  CORS check for origin:', origin, '- Allowed:', isAllowed);
+  // For now, allow all Vercel domains to avoid blocking legitimate traffic
+  if (origin && origin.includes('vercel.app')) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Max-Age', '86400');
+    return true;
+  }
+  
   return false;
 }
 

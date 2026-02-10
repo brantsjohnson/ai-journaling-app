@@ -124,6 +124,13 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    console.log('[AUTH] Login attempt for:', email);
+    console.log('[AUTH] Environment check:', {
+      hasJwtSecret: !!process.env.JWT_SECRET,
+      hasSupabaseUrl: !!process.env.SUPABASE_URL,
+      nodeEnv: process.env.NODE_ENV,
+    });
+
     if (!email || !password) {
       return res.status(400).json({
         status: 'fail',
@@ -131,8 +138,10 @@ exports.login = async (req, res) => {
       });
     }
 
+    console.log('[AUTH] Querying database for user:', email);
     const userResult = await db.query('SELECT * FROM users WHERE email = $1', [email]);
     const user = userResult.rows[0];
+    console.log('[AUTH] User found:', !!user);
 
     if (!user) {
       return res.status(401).json({
@@ -143,6 +152,7 @@ exports.login = async (req, res) => {
 
     // Check if user has password_hash (not an old Auth0 user)
     if (!user.password_hash) {
+      console.log('[AUTH] User has no password_hash - old Auth0 user');
       return res.status(401).json({
         status: 'fail',
         message: 'This account was created with the old authentication system. Please sign up again.',
@@ -150,7 +160,9 @@ exports.login = async (req, res) => {
     }
 
     // Verify password
+    console.log('[AUTH] Verifying password...');
     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
+    console.log('[AUTH] Password valid:', isPasswordValid);
 
     if (!isPasswordValid) {
       return res.status(401).json({
@@ -160,12 +172,16 @@ exports.login = async (req, res) => {
     }
 
     // Generate JWT token
+    const jwtSecret = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+    console.log('[AUTH] Generating JWT token with secret length:', jwtSecret.length);
+    
     const token = jwt.sign(
       { userId: user.id, email: user.email },
-      process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+      jwtSecret,
       { expiresIn: '7d' }
     );
 
+    console.log('[AUTH] Login successful for:', email);
     res.status(200).json({
       status: 'success',
       data: {
@@ -178,12 +194,12 @@ exports.login = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Login error:', err);
-    console.error('Error details:', err.stack);
+    console.error('[AUTH] Login error:', err);
+    console.error('[AUTH] Error details:', err.stack);
     res.status(500).json({
       status: 'error',
       message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined,
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Please check server logs',
     });
   }
 };
