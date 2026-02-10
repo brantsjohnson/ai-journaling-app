@@ -44,6 +44,11 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
   const [savedAudioPath, setSavedAudioPath] = useState(null);
   const [wakeLock, setWakeLock] = useState(null);
   const [chunkingProgress, setChunkingProgress] = useState(null); // { current: 1, total: 3 }
+  const [showLongRecordingWarning, setShowLongRecordingWarning] = useState(false);
+  
+  // Recording duration thresholds
+  const WARNING_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+  const RECOMMENDED_MAX_MS = 20 * 60 * 1000; // 20 minutes
   
 
   useEffect(() => {
@@ -379,7 +384,13 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
         
         const timerInterval = setInterval(() => {
           const currentTime = Date.now();
-          setElapsedTime(currentTime - startTime);
+          const elapsed = currentTime - startTime;
+          setElapsedTime(elapsed);
+          
+          // Show warning when recording exceeds 15 minutes
+          if (elapsed >= WARNING_DURATION_MS && !showLongRecordingWarning) {
+            setShowLongRecordingWarning(true);
+          }
         }, 100);
         
         // Store interval ID to clear it later
@@ -405,6 +416,9 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
     // Clear recording state from localStorage
     localStorage.removeItem('recording_active');
     localStorage.removeItem('recording_start_time');
+    
+    // Reset warning
+    setShowLongRecordingWarning(false);
     
     // Clear timer interval
     if (window.recordingTimerInterval) {
@@ -587,19 +601,14 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
   };
 
   // Split audio file into chunks using Web Audio API
-  const splitAudioIntoChunks = async (audioFile, maxChunkSizeMB = 20) => {
+  // Splits by BOTH file size (20MB) AND duration (10 minutes) to avoid Vercel timeout
+  const splitAudioIntoChunks = async (audioFile, maxChunkSizeMB = 20, maxChunkDurationMinutes = 10) => {
     const maxChunkSize = maxChunkSizeMB * 1024 * 1024; // Convert to bytes
+    const maxChunkDurationSeconds = maxChunkDurationMinutes * 60;
     const fileSize = audioFile.size;
-    
-    // If file is small enough, return as single chunk
-    if (fileSize <= maxChunkSize) {
-      return [{ file: audioFile, startTime: 0, endTime: duration || 0 }];
-    }
-
-    console.log(`File size (${(fileSize / 1024 / 1024).toFixed(2)}MB) exceeds ${maxChunkSizeMB}MB, splitting into chunks...`);
 
     try {
-      // Decode audio file using Web Audio API
+      // Decode audio file using Web Audio API to get duration
       const arrayBuffer = await audioFile.arrayBuffer();
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
@@ -608,13 +617,28 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
       const durationSeconds = audioBuffer.duration;
       const totalSamples = audioBuffer.length;
       
-      // Calculate chunk size in samples (approximate based on file size ratio)
-      const fileSizeRatio = maxChunkSize / fileSize;
-      const chunkDurationSeconds = durationSeconds * fileSizeRatio;
-      const chunkSamples = Math.floor(sampleRate * chunkDurationSeconds);
-      const numChunks = Math.ceil(totalSamples / chunkSamples);
+      // Check if file needs to be chunked (by size OR duration)
+      const needsChunkingBySize = fileSize > maxChunkSize;
+      const needsChunkingByDuration = durationSeconds > maxChunkDurationSeconds;
       
-      console.log(`Splitting into ${numChunks} chunks of approximately ${chunkDurationSeconds.toFixed(1)}s each`);
+      // If file is small enough AND short enough, return as single chunk
+      if (!needsChunkingBySize && !needsChunkingByDuration) {
+        audioContext.close();
+        return [{ file: audioFile, startTime: 0, endTime: durationSeconds, index: 1, total: 1 }];
+      }
+
+      // Calculate chunks needed for both constraints
+      const chunksNeededBySize = Math.ceil(fileSize / maxChunkSize);
+      const chunksNeededByDuration = Math.ceil(durationSeconds / maxChunkDurationSeconds);
+      
+      // Use whichever requires MORE chunks (stricter constraint)
+      const numChunks = Math.max(chunksNeededBySize, chunksNeededByDuration);
+      const chunkDurationSeconds = durationSeconds / numChunks;
+      const chunkSamples = Math.floor(totalSamples / numChunks);
+      
+      console.log(`Splitting audio: ${durationSeconds.toFixed(1)}s, ${(fileSize / 1024 / 1024).toFixed(2)}MB`);
+      console.log(`Creating ${numChunks} chunks of ~${chunkDurationSeconds.toFixed(1)}s / ~${((fileSize / numChunks) / 1024 / 1024).toFixed(2)}MB each`);
+      console.log(`Reason: ${needsChunkingByDuration ? 'Duration limit (10min)' : 'File size limit (20MB)'}`)
       
       const chunks = [];
       
@@ -707,19 +731,27 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
   // Transcribe audio file in chunks
   const transcribeInChunks = async (file, filePath, recordingDuration) => {
     const CHUNK_SIZE_MB = 20; // Process in 20MB chunks (leaves buffer for OpenAI's 25MB limit)
+    const CHUNK_DURATION_MINUTES = 10; // Process in 10-minute chunks (ensures each API call completes in ~3-4min, well under 13min Vercel timeout)
+    
     const fileSizeMB = file.size / (1024 * 1024);
+    const durationMinutes = recordingDuration / (1000 * 60);
 
-    // If file is small enough, transcribe normally
-    if (fileSizeMB <= CHUNK_SIZE_MB) {
+    // Check if file needs chunking by size OR duration
+    const needsChunkingBySize = fileSizeMB > CHUNK_SIZE_MB;
+    const needsChunkingByDuration = durationMinutes > CHUNK_DURATION_MINUTES;
+
+    // If file is small enough AND short enough, transcribe normally
+    if (!needsChunkingBySize && !needsChunkingByDuration) {
       return await transcribeSingleChunk(filePath, recordingDuration);
     }
 
-    // For large files, split and transcribe in chunks
-    console.log(`Large file detected (${fileSizeMB.toFixed(2)}MB). Splitting and processing in chunks...`);
+    // For large or long files, split and transcribe in chunks
+    console.log(`File requires chunking: ${fileSizeMB.toFixed(2)}MB, ${durationMinutes.toFixed(1)} minutes`);
+    console.log(`Reason: ${needsChunkingByDuration ? 'Exceeds 10-minute duration limit' : 'Exceeds 20MB size limit'}`);
     
     setChunkingProgress({ current: 0, total: 0 }); // Will update as we go
     
-    const chunks = await splitAudioIntoChunks(file, CHUNK_SIZE_MB);
+    const chunks = await splitAudioIntoChunks(file, CHUNK_SIZE_MB, CHUNK_DURATION_MINUTES);
     const numChunks = chunks.length;
     
     console.log(`Split into ${numChunks} chunks, transcribing each...`);
@@ -1091,6 +1123,16 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
         </label>
       </div>
         
+      {/* Long Recording Warning */}
+      {showLongRecordingWarning && isRecording && (
+        <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-3 text-center animate-in fade-in slide-in-from-top-2 duration-300">
+          <p className="text-sm text-yellow-300 font-sans font-semibold mb-1">⚠️ Long Recording Warning</p>
+          <p className="text-xs text-yellow-200 font-sans">
+            Recordings over 20 minutes may take longer to process. Consider stopping and saving periodically.
+          </p>
+        </div>
+      )}
+      
       {(isRecording || isTranscribing) && (
         <div className="flex flex-col items-center gap-2 animate-in fade-in zoom-in duration-300">
           {isRecording && (
