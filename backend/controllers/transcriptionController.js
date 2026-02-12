@@ -212,21 +212,23 @@ exports.transcribeAudio = async (req, res) => {
     // #endregion
     
     // If file_path was provided, file is already in Supabase - use that path
-    // Otherwise, upload the file buffer to Supabase
+    // Otherwise, upload the file buffer to Supabase (using service role - bypasses RLS)
     let uploadData;
+    let uploadError = null; // Define in outer scope to avoid "uploadError is not defined" when filePath exists
     if (filePath) {
       // File already uploaded, use the provided path
       uploadData = { path: filePath };
       console.log('Using existing file path:', filePath);
     } else {
-      // Upload file buffer to Supabase
-      const { data: uploadResult, error: uploadError } = await supabase.storage
+      // Upload file buffer to Supabase (service role bypasses RLS)
+      const { data: uploadResultData, error: uploadResultError } = await supabase.storage
         .from(bucket)
         .upload(filename, fileBuffer, {
           contentType: fileMimetype || 'audio/mpeg',
           upsert: true,
         });
 
+      uploadError = uploadResultError;
       if (uploadError) {
         // #region agent log
         dbgLog('transcriptionController.js:supabase-fail', 'Supabase upload failed', { error: uploadError.message }, 'H3');
@@ -239,7 +241,7 @@ exports.transcribeAudio = async (req, res) => {
           audio_saved: false
         });
       }
-      uploadData = uploadResult;
+      uploadData = uploadResultData;
     }
 
     // #region agent log
@@ -252,19 +254,6 @@ exports.transcribeAudio = async (req, res) => {
       bucket
     }, 'H1,H3,H5');
     // #endregion
-
-    if (uploadError) {
-      // #region agent log
-      dbgLog('transcriptionController.js:supabase-fail', 'Supabase upload failed', { error: uploadError.message }, 'H3');
-      // #endregion
-      console.error('Supabase upload error:', uploadError);
-      return res.status(500).json({
-        status: 'error',
-        message: 'Failed to upload audio to storage',
-        error: uploadError.message,
-        audio_saved: false
-      });
-    }
 
     // #region agent log
     dbgLog('transcriptionController.js:supabase-ok', 'Supabase upload OK', { 

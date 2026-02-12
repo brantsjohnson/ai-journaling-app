@@ -497,7 +497,8 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
             });
 
           if (uploadError) {
-            throw new Error(`Supabase upload failed: ${uploadError.message}`);
+            const errMsg = uploadError.message || 'Unknown upload error';
+            throw new Error(`Supabase upload failed: ${errMsg}`);
           }
 
           const filePath = uploadData.path;
@@ -569,8 +570,13 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
           console.error("Transcription/Upload error:", error);
           setIsTranscribing(false);
           setChunkingProgress(null);
+          let errorMessage = error.response?.data?.message || error.message || "Transcription failed. Please try again.";
+          // Provide helpful message for RLS policy errors
+          if (errorMessage.includes('row-level security') || errorMessage.includes('RLS')) {
+            errorMessage = "Storage upload failed. The app needs a one-time Supabase configuration. See SUPABASE_UPLOAD_FIX.md for the fix.";
+          }
           setTranscriptionError({
-            message: error.response?.data?.message || error.message || "Transcription failed. Please try again.",
+            message: errorMessage,
             audio_saved: error.response?.data?.audio_saved || false,
           });
         }
@@ -1073,8 +1079,12 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
       console.error("Transcription error:", error);
       setIsTranscribing(false);
       setChunkingProgress(null);
+      let errorMessage = error.response?.data?.message || error.message || "Transcription failed. Please try again.";
+      if (errorMessage.includes('row-level security') || errorMessage.includes('RLS')) {
+        errorMessage = "Storage upload failed. The app needs a one-time Supabase configuration. See SUPABASE_UPLOAD_FIX.md for the fix.";
+      }
       setTranscriptionError({
-        message: error.response?.data?.message || error.message || "Transcription failed. Please try again.",
+        message: errorMessage,
         audio_saved: error.response?.data?.audio_saved || false,
       });
     }
