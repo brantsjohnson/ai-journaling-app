@@ -444,11 +444,18 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
         const blobURL = URL.createObjectURL(blob);
         setBlobURL(blobURL);
 
-        // Use blob for File - more reliable on mobile (buffer can be inconsistent across browsers)
-        const file = new File([blob], "audio.mp3", {
-          type: blob.type || 'audio/mpeg',
+        // Use blob for File - blob is the actual MP3 data from mic-recorder
+        // Fallback to buffer if blob is empty (some mobile browsers)
+        const fileContent = (blob && blob.size > 0) ? [blob] : [buffer];
+        const file = new File(fileContent, "audio.mp3", {
+          type: (blob?.type || 'audio/mpeg'),
           lastModified: Date.now(),
         });
+
+        // Validate recording has content before proceeding
+        if (!file || file.size < 1000) {
+          throw new Error('Recording failed: audio file is empty or too short. Please try again and speak clearly.');
+        }
 
         setAudioFile(file); // Store the file for later use
 
@@ -510,12 +517,17 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
           
           // Handle response (could be direct axios response or our combined response)
           const responseData = response.data || response;
-          const transcript = responseData.data.transcript;
-          const local_path = responseData.data.local_path;
-          const language = responseData.data.language;
-          const confidence = responseData.data.confidence;
-          const chunked = responseData.data.chunked || false;
-          const chunksProcessed = responseData.data.chunks_processed || 1;
+          const data = responseData?.data || responseData;
+          const transcript = (data?.transcript ?? '') || '';
+          const local_path = data?.local_path;
+          const language = data?.language;
+          const confidence = data?.confidence;
+          const chunked = data?.chunked || false;
+          const chunksProcessed = data?.chunks_processed || 1;
+
+          if (!local_path) {
+            throw new Error('Transcription completed but audio path was not saved. Please try again.');
+          }
           
           if (chunked) {
             console.log(`Transcribed in ${chunksProcessed} chunk(s)`);
@@ -588,6 +600,10 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
         console.error("Recording error:", e);
         setIsRecording(false);
         setIsTranscribing(false);
+        setTranscriptionError({
+          message: e?.message || "Recording failed. Please try again.",
+          audio_saved: false,
+        });
       });
   };
 
