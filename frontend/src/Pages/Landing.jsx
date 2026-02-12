@@ -83,7 +83,10 @@ const Landing = () => {
       console.log('  - Method: POST');
       console.log('  - Payload:', { ...payload, password: '***' });
 
-      const response = await axios.post(fullUrl, payload);
+      const response = await axios.post(fullUrl, payload, {
+        timeout: 15000, // Allow for slow mobile connections
+        headers: { 'Content-Type': 'application/json' },
+      });
 
       if (response.data.status === "success") {
         // Store user and token
@@ -100,8 +103,11 @@ const Landing = () => {
       console.error("  - Request URL:", err.config?.url);
       console.error("  - Request method:", err.config?.method);
       
+      // Network/connection errors (no response) vs auth errors (401/400 from backend)
       const errorMessage = err.response?.data?.message || 
-        err.message ||
+        (err.message === 'Network Error' || !err.response
+          ? "Connection failed. Check your network and try again."
+          : err.message) ||
         (isSignup ? "Signup failed. Please try again." : "Login failed. Please check your credentials.");
       
       console.error("  - Final error message:", errorMessage);
