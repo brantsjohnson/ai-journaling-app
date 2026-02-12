@@ -1,5 +1,4 @@
-import { useState, useEffect } from "react";
-import MicRecorder from "mic-recorder-to-mp3";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { useScript } from "./ScriptContext";
 import { useAuth } from "../contexts/AuthContext";
@@ -18,17 +17,12 @@ const dbg = (payload) => {
 };
 // #endregion
 
-//bitRate option is set to 128, which means the audio recorder will use a bit rate of 128 kbps (kilobits per second) when encoding the recorded audio into an MP3 file.
-//Bit rate refers to the number of bits (binary digits) that are processed or transmitted per unit of time. In the context of audio recording, the bit rate determines the quality and size of the recorded audio file.
-
-// Initialize recorder
-// Bitrate set to 56 kbps to support 60-minute recordings (~25MB) while staying within OpenAI's 25MB limit
-const recorder = new MicRecorder({ 
-  bitRate: 56,
-  encoder: 'mp3',
-});
+// Use native MediaRecorder API instead of mic-recorder-to-mp3 (which uses deprecated ScriptProcessorNode
+// and was causing silent recordings). MediaRecorder is well-supported and reliable across browsers.
 
 const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null, onRetryTranscription = null, journalDate = null }) => {
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
   const { script,setScript } = useScript();
   const { token } = useAuth();
   const [isRecording, setIsRecording] = useState(false);
@@ -159,10 +153,7 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
         
         if (storedBlobURL && storedAudioFile) {
           try {
-            // Restore blob URL
-            setBlobURL(storedBlobURL);
-            
-            // Restore audio file from base64
+            // Restore audio file from base64 - must create NEW blob URL (stored blob URLs are invalid after session)
             const audioData = JSON.parse(storedAudioFile);
             fetch(audioData.dataURL)
               .then(res => res.blob())
@@ -172,6 +163,7 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
                   lastModified: audioData.lastModified || Date.now(),
                 });
                 setAudioFile(file);
+                setBlobURL(URL.createObjectURL(blob)); // Create fresh blob URL - stored one is invalid
                 if (storedDuration) {
                   setDuration(parseInt(storedDuration, 10));
                 }
@@ -229,34 +221,27 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
     if (!isRecording) return;
 
     const handleBeforeUnload = (e) => {
-      // If recording is in progress, try to save it
-      if (isRecording && recorder) {
+      const mr = mediaRecorderRef.current;
+      if (isRecording && mr && mr.state !== 'inactive') {
         e.preventDefault();
         e.returnValue = 'You are currently recording. Are you sure you want to leave?';
-        
-        // Try to stop and save recording
         try {
-          recorder.stop().getMp3().then(async ([buffer, blob]) => {
-            const recordingDuration = recordingStartTime ? Date.now() - recordingStartTime : 0;
-            const file = new File([blob], "audio_emergency_save.mp3", {
-              type: blob.type || 'audio/mpeg',
-              lastModified: Date.now(),
-            });
-            
-            // Store in localStorage as emergency backup
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const base64data = reader.result;
-              localStorage.setItem('emergency_recording', JSON.stringify({
-                audio: base64data,
-                duration: recordingDuration,
-                timestamp: Date.now(),
-              }));
-            };
-            reader.readAsDataURL(blob);
-          }).catch(err => {
-            console.error('Error saving emergency recording:', err);
-          });
+          const chunks = chunksRef.current;
+          mr.onstop = () => {
+            const blob = chunks.length > 0 ? new Blob(chunks, { type: mr.mimeType || 'audio/webm' }) : null;
+            if (blob && blob.size > 0) {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                localStorage.setItem('emergency_recording', JSON.stringify({
+                  audio: reader.result,
+                  duration: recordingStartTime ? Date.now() - recordingStartTime : 0,
+                  timestamp: Date.now(),
+                }));
+              };
+              reader.readAsDataURL(blob);
+            }
+          };
+          mr.stop();
         } catch (err) {
           console.error('Error in emergency save:', err);
         }
@@ -348,22 +333,27 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
         }
       }
 
-      // Get a fresh MediaStream with echo cancellation for recording
+      // Get a fresh MediaStream - use permissive constraints (strict sampleRate can cause silent audio on some devices)
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          sampleRate: 44100,
-          // Additional constraint to prevent feedback
-          googEchoCancellation: true,
-          googNoiseSuppression: true,
-          googAutoGainControl: true,
+          // Avoid sampleRate - Chrome ignores it and strict values can cause issues on some devices
         } 
       });
 
-      // Start recorder - MicRecorder will use the active stream
-      await recorder.start();
+      // Use MediaRecorder API - reliable, no deprecated ScriptProcessorNode
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+      const mediaRecorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 128000 });
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.start(1000); // Collect data every second for reliability
       
       const startTime = Date.now();
       setRecordingStartTime(startTime);
@@ -426,38 +416,47 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
       window.recordingTimerInterval = null;
     }
     
-    // Stop the media stream tracks to release the microphone
-    if (mediaStream) {
-      mediaStream.getTracks().forEach(track => track.stop());
-      setMediaStream(null);
+    const streamToStop = mediaStream;
+    setMediaStream(null);
+    setIsRecording(false);
+
+    const mediaRecorder = mediaRecorderRef.current;
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+      if (streamToStop) streamToStop.getTracks().forEach(track => track.stop());
+      setIsTranscribing(false);
+      return;
     }
 
-    recorder
-      .stop()
-      .getMp3()
-      .then(async ([buffer, blob]) => {
-        // Calculate duration
+    mediaRecorder.onstop = async () => {
+      try {
+        if (streamToStop) streamToStop.getTracks().forEach(track => track.stop());
+        
         const recordingDuration = recordingStartTime ? Date.now() - recordingStartTime : 0;
         setDuration(recordingDuration);
         setRecordingStartTime(null);
 
+        const chunks = chunksRef.current;
+        const blob = chunks.length > 0 ? new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' }) : null;
+        
+        if (!blob || blob.size < 1000) {
+          setTranscriptionError({
+            message: 'Recording failed: no audio captured. Please check microphone permissions and try again.',
+            audio_saved: false,
+          });
+          setIsTranscribing(false);
+          return;
+        }
+
         const blobURL = URL.createObjectURL(blob);
         setBlobURL(blobURL);
 
-        // Use blob for File - blob is the actual MP3 data from mic-recorder
-        // Fallback to buffer if blob is empty (some mobile browsers)
-        const fileContent = (blob && blob.size > 0) ? [blob] : [buffer];
-        const file = new File(fileContent, "audio.mp3", {
-          type: (blob?.type || 'audio/mpeg'),
+        const ext = blob.type.includes('webm') ? 'webm' : 'mp3';
+        const file = new File([blob], `audio.${ext}`, {
+          type: blob.type,
           lastModified: Date.now(),
         });
 
-        // Validate recording has content before proceeding
-        if (!file || file.size < 1000) {
-          throw new Error('Recording failed: audio file is empty or too short. Please try again and speak clearly.');
-        }
-
-        setAudioFile(file); // Store the file for later use
+        setAudioFile(file);
 
         // Persist audio state to localStorage
         try {
@@ -490,7 +489,7 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
           const formattedDate = `${dateParts[1]}-${dateParts[2]}-${dateParts[0]}`;
           const durationSeconds = Math.round(recordingDuration / 1000);
           const uniqueSuffix = Date.now().toString().slice(-6);
-          const filename = `${formattedDate}--01--${durationSeconds}--${uniqueSuffix}.mp3`;
+          const filename = `${formattedDate}--01--${durationSeconds}--${uniqueSuffix}.${ext}`;
           
           const bucket = 'audio'; // Use your bucket name
           
@@ -593,18 +592,17 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
             audio_saved: error.response?.data?.audio_saved || false,
           });
         }
-
-        setIsRecording(false);
-      })
-      .catch((e) => {
+      } catch (e) {
         console.error("Recording error:", e);
-        setIsRecording(false);
         setIsTranscribing(false);
         setTranscriptionError({
           message: e?.message || "Recording failed. Please try again.",
           audio_saved: false,
         });
-      });
+      }
+    };
+
+    mediaRecorder.stop();
   };
 
   const audioToBase64 = async (audioFile) => {

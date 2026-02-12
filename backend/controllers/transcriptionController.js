@@ -115,7 +115,8 @@ exports.transcribeAudio = async (req, res) => {
       fileBuffer = Buffer.from(await fileData.arrayBuffer());
       fileSize = fileBuffer.length;
       originalFilename = filePath.split('/').pop() || 'audio.mp3';
-      fileMimetype = 'audio/mpeg'; // Default, could be determined from extension
+      const ext = (originalFilename.split('.').pop() || '').toLowerCase();
+      fileMimetype = { webm: 'audio/webm', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/m4a' }[ext] || 'audio/mpeg';
       
       console.log('File downloaded from Supabase:', {
         filename: originalFilename,
