@@ -197,7 +197,8 @@ exports.transcribeAudio = async (req, res) => {
     const uniqueSuffix = Date.now().toString().slice(-6); // Last 6 digits of timestamp for uniqueness
     
     // Generate filename in format: MM-DD-YYYY--{entryNumber}--{duration}--{unique}.mp3
-    const fileExt = req.file.originalname?.split('.').pop() || 'mp3';
+    // When file_path is used, req.file is undefined - use originalFilename from file path
+    const fileExt = (req.file?.originalname || originalFilename || 'audio.mp3').split('.').pop() || 'mp3';
     const filename = `${formattedDate}--${String(entryNumber).padStart(2, '0')}--${durationSeconds}--${uniqueSuffix}.${fileExt}`;
     
     // Sanitize bucket name - remove any whitespace or newlines

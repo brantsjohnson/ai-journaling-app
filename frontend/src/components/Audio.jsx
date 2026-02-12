@@ -238,8 +238,8 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
         try {
           recorder.stop().getMp3().then(async ([buffer, blob]) => {
             const recordingDuration = recordingStartTime ? Date.now() - recordingStartTime : 0;
-            const file = new File(buffer, "audio_emergency_save.mp3", {
-              type: blob.type,
+            const file = new File([blob], "audio_emergency_save.mp3", {
+              type: blob.type || 'audio/mpeg',
               lastModified: Date.now(),
             });
             
@@ -444,8 +444,9 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
         const blobURL = URL.createObjectURL(blob);
         setBlobURL(blobURL);
 
-        const file = new File(buffer, "audio.mp3", {
-          type: blob.type,
+        // Use blob for File - more reliable on mobile (buffer can be inconsistent across browsers)
+        const file = new File([blob], "audio.mp3", {
+          type: blob.type || 'audio/mpeg',
           lastModified: Date.now(),
         });
 
@@ -870,9 +871,11 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
       // If we have the audio file, use it; otherwise, we'd need to fetch from savedAudioPath
       if (audioFile) {
         formData.append("audio", audioFile);
-      } else {
-        // Fetch audio from saved path and create a file
-        const response = await fetch(`${API_BASE}/audio/${savedAudioPath}`);
+      } else if (savedAudioPath) {
+        // Fetch audio from Supabase storage (savedAudioPath is the storage path)
+        const { data: { publicUrl } } = supabase.storage.from('audio').getPublicUrl(savedAudioPath);
+        const response = await fetch(publicUrl);
+        if (!response.ok) throw new Error(`Failed to fetch audio: ${response.status}`);
         const blob = await response.blob();
         const file = new File([blob], "audio.mp3", { type: "audio/mpeg" });
         formData.append("audio", file);
