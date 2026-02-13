@@ -296,12 +296,15 @@ exports.transcribeAudio = async (req, res) => {
     }, 'H6');
     // #endregion
 
-    // Check if OpenAI API key is configured
-    if (!process.env.OPEN_AI_KEY) {
-      console.error('OpenAI API key not configured');
+    // Check if OpenAI API key is configured and validate before any transcription
+    const apiKey = (process.env.OPEN_AI_KEY || '').trim().replace(/[\r\n\t]/g, '');
+    if (!process.env.OPEN_AI_KEY || !apiKey || apiKey.length < 20) {
+      console.error('OpenAI API key not configured or invalid');
       return res.status(500).json({
         status: 'error',
-        message: 'OpenAI API key not configured'
+        message: 'OpenAI API key is missing or invalid. Please set OPEN_AI_KEY in Vercel environment variables.',
+        error: 'API key is invalid or not set',
+        audio_saved: true
       });
     }
 
@@ -321,25 +324,12 @@ exports.transcribeAudio = async (req, res) => {
       console.warn(`File size (${(fileSize / 1024 / 1024).toFixed(2)}MB) exceeds OpenAI's 25MB limit`);
       // Note: We'll still attempt to send it, but OpenAI may reject it
     }
-
-    // Clean and validate API key
-    const apiKey = (process.env.OPEN_AI_KEY || '').trim().replace(/[\r\n\t]/g, '');
     console.log('API key check:', {
       exists: !!apiKey,
       length: apiKey.length,
       prefix: apiKey.substring(0, 15),
       hasInvalidChars: /[\r\n\t\x00-\x1F\x7F-\xFF]/.test(apiKey)
     });
-
-    if (!apiKey || apiKey.length < 20) {
-      console.error('Invalid or missing API key!');
-      return res.status(500).json({
-        status: 'error',
-        message: 'OpenAI API key is missing or invalid. Please set OPEN_AI_KEY in Vercel environment variables.',
-        error: 'API key is invalid or not set',
-        audio_saved: true // Audio was uploaded successfully
-      });
-    }
 
     // #region agent log
     dbgLog('transcriptionController.js:pre-openai', 'Before OpenAI Whisper call', { hasApiKey: !!apiKey }, 'H4');

@@ -623,13 +623,14 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
 
   // Split audio file into chunks using Web Audio API
   // Splits by BOTH file size (20MB) AND duration (10 minutes) to avoid Vercel timeout
+  // Note: decodeAudioData may fail on WebM/Opus in some browsers - caller should fall back to single transcription
   const splitAudioIntoChunks = async (audioFile, maxChunkSizeMB = 20, maxChunkDurationMinutes = 10) => {
     const maxChunkSize = maxChunkSizeMB * 1024 * 1024; // Convert to bytes
     const maxChunkDurationSeconds = maxChunkDurationMinutes * 60;
     const fileSize = audioFile.size;
 
     try {
-      // Decode audio file using Web Audio API to get duration
+      // Decode audio file - decodeAudioData may not support WebM/Opus in Safari/some browsers
       const arrayBuffer = await audioFile.arrayBuffer();
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
@@ -701,9 +702,11 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
       audioContext.close();
       return chunks;
     } catch (error) {
-      console.error('Error splitting audio:', error);
-      // Fallback: return original file
-      return [{ file: audioFile, startTime: 0, endTime: duration || 0 }];
+      console.warn('Cannot split audio (decodeAudioData may not support WebM/Opus):', error.message);
+      // Signal caller to fall back to single-file transcription
+      const e = new Error('CHUNK_DECODE_FAILED');
+      e.cause = error;
+      throw e;
     }
   };
 
@@ -772,7 +775,19 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
     
     setChunkingProgress({ current: 0, total: 0 }); // Will update as we go
     
-    const chunks = await splitAudioIntoChunks(file, CHUNK_SIZE_MB, CHUNK_DURATION_MINUTES);
+    let chunks;
+    try {
+      chunks = await splitAudioIntoChunks(file, CHUNK_SIZE_MB, CHUNK_DURATION_MINUTES);
+    } catch (splitError) {
+      // decodeAudioData may fail on WebM/Opus - fall back to single-file transcription
+      if (splitError.message === 'CHUNK_DECODE_FAILED') {
+        console.warn('Audio split failed (WebM/Opus not decodable in browser), transcribing full file instead');
+        setChunkingProgress(null);
+        return await transcribeSingleChunk(filePath, recordingDuration);
+      }
+      throw splitError;
+    }
+    
     const numChunks = chunks.length;
     
     console.log(`Split into ${numChunks} chunks, transcribing each...`);
@@ -791,12 +806,14 @@ const AudioRecording = ({ onRecordingComplete, showTimer = false, entryId = null
         const dateParts = (journalDate || new Date().toISOString().split('T')[0]).split('-');
         const formattedDate = `${dateParts[1]}-${dateParts[2]}-${dateParts[0]}`;
         const uniqueSuffix = Date.now().toString().slice(-6);
-        const chunkFilename = `${formattedDate}--chunk-${chunk.index}--${uniqueSuffix}.wav`;
+        const chunkExt = (chunk.file.name.split('.').pop() || 'wav').toLowerCase();
+        const chunkFilename = `${formattedDate}--chunk-${chunk.index}--${uniqueSuffix}.${chunkExt}`;
+        const chunkMime = chunk.file.type || (chunkExt === 'wav' ? 'audio/wav' : 'audio/webm');
         
         const { data: chunkUploadData, error: chunkUploadError } = await supabase.storage
           .from('audio')
           .upload(chunkFilename, chunk.file, {
-            contentType: 'audio/wav',
+            contentType: chunkMime,
             upsert: true,
           });
 
